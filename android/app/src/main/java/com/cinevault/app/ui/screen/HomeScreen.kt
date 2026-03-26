@@ -310,7 +310,10 @@ fun RectangularHeroBanner(
             ) {
                 // WATCH NOW button (smaller)
                 Button(
-                    onClick = { banner.contentIdString?.let { onWatchNowClick(it) } },
+                    onClick = { 
+                        val movieId = banner.contentId?.toString() ?: banner.id
+                        onWatchNowClick(movieId)
+                    },
                     modifier = Modifier
                         .height(40.dp)
                         .wrapContentWidth(),

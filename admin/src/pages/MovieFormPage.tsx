@@ -14,16 +14,15 @@ export default function MovieFormPage() {
 
   const [form, setForm] = useState({
     title: '',
-    description: '',
+    synopsis: '',
     posterUrl: '',
     backdropUrl: '',
     trailerUrl: '',
     genres: [] as string[],
-    language: 'English',
-    releaseYear: new Date().getFullYear(),
-    duration: 0,
     contentType: 'movie' as 'movie' | 'series' | 'documentary' | 'anime' | 'web_series' | 'tv_show' | 'short_film',
     contentRating: '',
+    releaseYear: new Date().getFullYear(),
+    duration: 0,
     status: 'draft' as 'draft' | 'published' | 'archived',
     cast: [] as CastMember[],
     streamingSources: [] as StreamingSource[],
@@ -46,16 +45,15 @@ export default function MovieFormPage() {
     if (movie) {
       setForm({
         title: movie.title,
-        description: movie.description,
+        synopsis: movie.synopsis ?? '',
         posterUrl: movie.posterUrl,
         backdropUrl: movie.backdropUrl ?? '',
         trailerUrl: movie.trailerUrl ?? '',
         genres: movie.genres,
-        language: movie.language,
-        releaseYear: movie.releaseYear,
-        duration: movie.duration ?? 0,
         contentType: movie.contentType,
         contentRating: movie.contentRating ?? '',
+        releaseYear: movie.releaseYear,
+        duration: movie.duration ?? 0,
         status: movie.status,
         cast: movie.cast,
         streamingSources: movie.streamingSources,
@@ -72,7 +70,10 @@ export default function MovieFormPage() {
       toast.success(isEdit ? 'Content updated' : 'Content created');
       navigate('/movies');
     },
-    onError: () => toast.error('Failed to save'),
+    onError: (error: any) => {
+      const message = error?.response?.data?.message || 'Failed to save';
+      toast.error(message);
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -159,8 +160,8 @@ export default function MovieFormPage() {
           <div>
             <label className="block text-sm text-text-secondary mb-1">Description *</label>
             <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              value={form.synopsis}
+              onChange={(e) => setForm({ ...form, synopsis: e.target.value })}
               rows={4}
               className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold resize-none"
               required
@@ -183,15 +184,6 @@ export default function MovieFormPage() {
                 type="number"
                 value={form.duration}
                 onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) || 0 })}
-                className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">Language</label>
-              <input
-                type="text"
-                value={form.language}
-                onChange={(e) => setForm({ ...form, language: e.target.value })}
                 className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
               />
             </div>

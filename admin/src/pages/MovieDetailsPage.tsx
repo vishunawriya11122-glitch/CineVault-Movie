@@ -158,10 +158,6 @@ export default function MovieDetailsPage() {
                   <p className="font-semibold">{durationText}</p>
                 </div>
                 <div>
-                  <p className="text-text-secondary text-sm mb-1">Language</p>
-                  <p className="font-semibold capitalize">{m.language}</p>
-                </div>
-                <div>
                   <p className="text-text-secondary text-sm mb-1">Content Type</p>
                   <p className="font-semibold capitalize">{m.contentType.replace(/_/g, ' ')}</p>
                 </div>
@@ -179,10 +175,10 @@ export default function MovieDetailsPage() {
             </div>
 
             {/* Plot/Description */}
-            {m.description && (
+            {m.synopsis && (
               <div>
                 <h2 className="text-2xl font-bold mb-4">Plot</h2>
-                <p className="text-text-secondary leading-relaxed">{m.description}</p>
+                <p className="text-text-secondary leading-relaxed">{m.synopsis}</p>
               </div>
             )}
 

@@ -1,12 +1,11 @@
 export interface Movie {
   _id: string;
   title: string;
-  description: string;
+  synopsis: string;
   posterUrl: string;
   backdropUrl?: string;
   trailerUrl?: string;
   genres: string[];
-  language: string;
   releaseYear: number;
   duration?: number;
   contentType: 'movie' | 'series' | 'documentary' | 'anime' | 'web_series' | 'tv_show' | 'short_film';

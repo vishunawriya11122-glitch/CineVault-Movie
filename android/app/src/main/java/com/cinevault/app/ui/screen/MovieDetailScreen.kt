@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.TextAlign
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,7 +51,75 @@ fun MovieDetailScreen(
         return
     }
 
-    val movie = uiState.movie ?: return
+    // Show error if loading failed
+    if (uiState.error != null && uiState.movie == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(CineVaultTheme.colors.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .align(Alignment.Start)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        .size(40.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = CineVaultTheme.colors.textPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    "Failed to Load Movie",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CineVaultTheme.colors.textPrimary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    uiState.error ?: "Unknown error occurred",
+                    fontSize = 14.sp,
+                    color = CineVaultTheme.colors.textSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onBack,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CineVaultTheme.colors.accentGold
+                    )
+                ) {
+                    Text("Go Back")
+                }
+            }
+        }
+        return
+    }
+
+    val movie = uiState.movie
+    if (movie == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(CineVaultTheme.colors.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "Loading movie details...",
+                color = CineVaultTheme.colors.textPrimary
+            )
+        }
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -236,14 +304,19 @@ fun MovieDetailScreen(
 
             // WATCH NOW button - Cyan/Teal color
             Button(
-                onClick = { onPlay(movie.id, null) },
+                onClick = {
+                    if (movie.id.isNotBlank()) {
+                        onPlay(movie.id, null)
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF00BCD4) // Cyan color
                 ),
-                shape = RoundedCornerShape(6.dp)
+                shape = RoundedCornerShape(6.dp),
+                enabled = movie.id.isNotBlank()
             ) {
                 Icon(
                     Icons.Default.PlayArrow,
