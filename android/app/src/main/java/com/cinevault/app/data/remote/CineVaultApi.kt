@@ -53,11 +53,11 @@ interface CineVaultApi {
 
     // Home
     @GET("home/feed")
-    suspend fun getHomeFeed(): Response<List<HomeSectionDto>>
+    suspend fun getHomeFeed(@Query("section") section: String? = null): Response<List<HomeSectionDto>>
 
     // Banners
     @GET("banners")
-    suspend fun getBanners(): Response<List<BannerDto>>
+    suspend fun getBanners(@Query("section") section: String? = null): Response<List<BannerDto>>
 
     // Movies
     @GET("movies")

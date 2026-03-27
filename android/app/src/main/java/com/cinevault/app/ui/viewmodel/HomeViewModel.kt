@@ -21,8 +21,8 @@ data class HomeUiState(
     val tabBanners: List<BannerDto> = emptyList(),
     val homeSections: List<HomeSectionDto> = emptyList(),
     val selectedTab: Int = 0, // 0=Home, 1=Shows, 2=Movies, 3=Anime
-    val filteredMovies: List<MovieDto> = emptyList(),
-    val isFilterLoading: Boolean = false,
+    val tabSections: List<HomeSectionDto> = emptyList(),
+    val isTabLoading: Boolean = false,
 )
 
 @HiltViewModel
@@ -81,45 +81,55 @@ class HomeViewModel @Inject constructor(
     }
 
     fun selectTab(index: Int) {
-        _uiState.update {
-            it.copy(
-                selectedTab = index,
-                tabBanners = filterBannersForTab(index, it.banners)
-            )
+        _uiState.update { it.copy(selectedTab = index) }
+        val section = when (index) {
+            0 -> "home"
+            1 -> "shows"
+            2 -> "movies"
+            3 -> "anime"
+            else -> "home"
         }
-        when (index) {
-            0 -> { /* Home tab — data already loaded */ }
-            1 -> loadFilteredContent("web_series,tv_show")
-            2 -> loadFilteredContent("movie")
-            3 -> loadFilteredContent("anime")
-        }
+        loadTabData(section)
     }
 
-    private fun filterBannersForTab(tab: Int, banners: List<BannerDto>): List<BannerDto> {
-        if (tab == 0) return banners
-        val types = when (tab) {
-            1 -> listOf("web_series", "tv_show")
-            2 -> listOf("movie")
-            3 -> listOf("anime")
-            else -> return banners
-        }
-        val filtered = banners.filter { it.contentType in types }
-        return filtered.ifEmpty { banners }
+    private fun tabSection(index: Int): String = when (index) {
+        0 -> "home"
+        1 -> "shows"
+        2 -> "movies"
+        3 -> "anime"
+        else -> "home"
     }
 
-    private fun loadFilteredContent(contentType: String) {
+    private fun loadTabData(section: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isFilterLoading = true, filteredMovies = emptyList()) }
-            // Load multiple types by splitting comma-separated
-            val types = contentType.split(",")
-            val allMovies = mutableListOf<MovieDto>()
-            for (type in types) {
-                when (val r = contentRepository.getMoviesByType(type.trim(), limit = 40)) {
-                    is Result.Success -> allMovies.addAll(r.data)
-                    else -> {}
-                }
+            _uiState.update { it.copy(isTabLoading = true) }
+
+            val bannersDeferred = async { contentRepository.getBanners(section) }
+            val feedDeferred = async { contentRepository.getHomeFeed(section) }
+
+            val bannersResult = bannersDeferred.await()
+            val feedResult = feedDeferred.await()
+
+            val banners = when (bannersResult) {
+                is Result.Success -> bannersResult.data
+                else -> emptyList()
             }
-            _uiState.update { it.copy(isFilterLoading = false, filteredMovies = allMovies) }
+            val sections = when (feedResult) {
+                is Result.Success -> feedResult.data
+                else -> emptyList()
+            }
+
+            val bothFailed = bannersResult is Result.Error && feedResult is Result.Error
+
+            _uiState.update {
+                it.copy(
+                    isTabLoading = false,
+                    isRefreshing = false,
+                    tabBanners = banners,
+                    tabSections = sections,
+                    error = if (bothFailed) "Connection failed" else null,
+                )
+            }
         }
     }
 
@@ -127,26 +137,36 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            val bannersDeferred = async { contentRepository.getBanners() }
-            val feedDeferred = async { contentRepository.getHomeFeed() }
+            val section = tabSection(_uiState.value.selectedTab)
+            val bannersDeferred = async { contentRepository.getBanners(section) }
+            val feedDeferred = async { contentRepository.getHomeFeed(section) }
 
-            val banners = when (val r = bannersDeferred.await()) {
-                is Result.Success -> r.data
+            val bannersResult = bannersDeferred.await()
+            val feedResult = feedDeferred.await()
+
+            val banners = when (bannersResult) {
+                is Result.Success -> bannersResult.data
                 else -> emptyList()
             }
-            val sections = when (val r = feedDeferred.await()) {
-                is Result.Success -> r.data
+            val sections = when (feedResult) {
+                is Result.Success -> feedResult.data
                 else -> emptyList()
             }
+
+            // Only show error when BOTH API calls actually failed (network error),
+            // not when they succeeded but returned empty data
+            val bothFailed = bannersResult is Result.Error && feedResult is Result.Error
+            val errorMsg = if (bothFailed) "Connection failed" else null
 
             _uiState.update {
                 it.copy(
                     isLoading = false,
                     isRefreshing = false,
                     banners = banners,
-                    tabBanners = filterBannersForTab(it.selectedTab, banners),
+                    tabBanners = banners,
                     homeSections = sections,
-                    error = if (banners.isEmpty() && sections.isEmpty()) "Failed to load content" else null,
+                    tabSections = sections,
+                    error = errorMsg,
                 )
             }
         }
@@ -154,12 +174,7 @@ class HomeViewModel @Inject constructor(
 
     fun refresh() {
         _uiState.update { it.copy(isRefreshing = true) }
-        loadHome()
-        // Also reload filtered content if on a non-Home tab
-        when (_uiState.value.selectedTab) {
-            1 -> loadFilteredContent("web_series,tv_show")
-            2 -> loadFilteredContent("movie")
-            3 -> loadFilteredContent("anime")
-        }
+        val section = tabSection(_uiState.value.selectedTab)
+        loadTabData(section)
     }
 }

@@ -123,40 +123,24 @@ fun HomeScreen(
                 }
 
                 // ── Content based on selected tab ──
-                if (uiState.selectedTab == 0) {
-                    // HOME TAB — show dynamic sections
-
-                    itemsIndexed(uiState.homeSections) { _, section ->
-                        Column {
-                            PremiumSectionHeader(
-                                title = section.title,
-                                onArrowClick = {
-                                    onSectionClick?.invoke(section)
-                                }
-                            )
-                            HorizontalMovieRow(
-                                movies = section.items,
-                                onMovieClick = onMovieClick
+                if (uiState.isTabLoading) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = CineVaultTheme.colors.accentGold,
+                                strokeWidth = 3.dp
                             )
                         }
                     }
                 } else {
-                    // FILTERED TAB — Shows / Movies / Anime
-                    if (uiState.isFilterLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = CineVaultTheme.colors.accentGold,
-                                    strokeWidth = 3.dp
-                                )
-                            }
-                        }
-                    } else if (uiState.filteredMovies.isEmpty()) {
+                    val sectionsToShow = if (uiState.selectedTab == 0) uiState.homeSections else uiState.tabSections
+
+                    if (sectionsToShow.isEmpty() && uiState.tabBanners.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -172,11 +156,19 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        item {
-                            FilteredContentGrid(
-                                movies = uiState.filteredMovies,
-                                onMovieClick = onMovieClick
-                            )
+                        itemsIndexed(sectionsToShow) { _, section ->
+                            Column {
+                                PremiumSectionHeader(
+                                    title = section.title,
+                                    onArrowClick = {
+                                        onSectionClick?.invoke(section)
+                                    }
+                                )
+                                HorizontalMovieRow(
+                                    movies = section.items,
+                                    onMovieClick = onMovieClick
+                                )
+                            }
                         }
                     }
                 }
@@ -198,7 +190,7 @@ fun HomeScreen(
         }
 
         // Error State
-        if (!uiState.isLoading && uiState.homeSections.isEmpty() && uiState.error != null) {
+        if (!uiState.isLoading && uiState.homeSections.isEmpty() && uiState.tabSections.isEmpty() && uiState.error != null) {
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)

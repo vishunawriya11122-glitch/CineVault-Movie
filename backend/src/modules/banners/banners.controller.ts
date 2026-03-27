@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { BannersService } from './banners.service';
@@ -11,18 +11,18 @@ export class BannersController {
   constructor(private readonly bannersService: BannersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get active banners for hero carousel' })
-  async getActive() {
-    return this.bannersService.getActiveBanners();
+  @ApiOperation({ summary: 'Get active banners for hero carousel (filtered by section)' })
+  async getActive(@Query('section') section?: string) {
+    return this.bannersService.getActiveBanners(section);
   }
 
   @Get('all')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('admin', 'content_manager')
-  @ApiOperation({ summary: 'Get all banners (Admin)' })
-  async getAll() {
-    return this.bannersService.getAll();
+  @ApiOperation({ summary: 'Get all banners (Admin), optionally filtered by section' })
+  async getAll(@Query('section') section?: string) {
+    return this.bannersService.getAll(section);
   }
 
   @Get('test-urls')

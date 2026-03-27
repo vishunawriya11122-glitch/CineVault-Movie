@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { HomeSection, HomeSectionDocument } from '../../schemas/home-section.schema';
+import { HomeSection, HomeSectionDocument, TabSection } from '../../schemas/home-section.schema';
 import { Movie, MovieDocument, ContentStatus } from '../../schemas/movie.schema';
 
 @Injectable()
@@ -11,9 +11,16 @@ export class HomeSectionsService {
     @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
   ) {}
 
-  async getHomeFeed(): Promise<any[]> {
+  async getHomeFeed(section?: string): Promise<any[]> {
+    const filter: any = { isVisible: true };
+    if (section) {
+      filter.section = section;
+    } else {
+      filter.section = TabSection.HOME;
+    }
+
     const sections = await this.sectionModel
-      .find({ isVisible: true })
+      .find(filter)
       .sort({ displayOrder: 1 });
 
     const feed = [];
@@ -59,12 +66,17 @@ export class HomeSectionsService {
     return feed;
   }
 
-  async getAll(): Promise<HomeSectionDocument[]> {
-    return this.sectionModel.find().sort({ displayOrder: 1 });
+  async getAll(section?: string): Promise<HomeSectionDocument[]> {
+    const filter: any = {};
+    if (section) filter.section = section;
+    return this.sectionModel.find(filter).sort({ displayOrder: 1 });
   }
 
   async create(data: Partial<HomeSection>): Promise<HomeSectionDocument> {
-    const count = await this.sectionModel.countDocuments();
+    if (!data.section) (data as any).section = TabSection.HOME;
+    const filter: any = {};
+    if (data.section) filter.section = data.section;
+    const count = await this.sectionModel.countDocuments(filter);
     return this.sectionModel.create({ ...data, displayOrder: count });
   }
 

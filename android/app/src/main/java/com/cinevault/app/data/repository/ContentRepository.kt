@@ -8,9 +8,9 @@ import javax.inject.Singleton
 @Singleton
 class ContentRepository @Inject constructor(private val api: CineVaultApi) {
 
-    suspend fun getHomeFeed(): Result<List<HomeSectionDto>> {
+    suspend fun getHomeFeed(section: String? = null): Result<List<HomeSectionDto>> {
         return try {
-            val response = api.getHomeFeed()
+            val response = api.getHomeFeed(section)
             if (response.isSuccessful && response.body() != null) {
                 Result.Success(response.body()!!)
             } else {
@@ -21,9 +21,9 @@ class ContentRepository @Inject constructor(private val api: CineVaultApi) {
         }
     }
 
-    suspend fun getBanners(): Result<List<BannerDto>> {
+    suspend fun getBanners(section: String? = null): Result<List<BannerDto>> {
         return try {
-            val response = api.getBanners()
+            val response = api.getBanners(section)
             if (response.isSuccessful && response.body() != null) {
                 Result.Success(response.body()!!)
             } else {

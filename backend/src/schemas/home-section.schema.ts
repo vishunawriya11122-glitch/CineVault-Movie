@@ -16,6 +16,13 @@ export enum CardSize {
   LARGE = 'large',
 }
 
+export enum TabSection {
+  HOME = 'home',
+  MOVIES = 'movies',
+  SHOWS = 'shows',
+  ANIME = 'anime',
+}
+
 @Schema({ timestamps: true })
 export class HomeSection {
   @Prop({ required: true, trim: true })
@@ -37,16 +44,16 @@ export class HomeSection {
   isVisible: boolean;
 
   @Prop({ default: false })
-  isSystemManaged: boolean; // e.g., "Trending", "New Releases" auto-populated
+  isSystemManaged: boolean;
 
   @Prop()
-  contentType: string; // filter: movie, web_series, etc.
+  contentType: string;
 
   @Prop()
-  genre: string; // filter by genre
+  genre: string;
 
   @Prop()
-  sortBy: string; // popularityScore, createdAt, rating, viewCount
+  sortBy: string;
 
   @Prop({ default: 20 })
   maxItems: number;
@@ -68,8 +75,11 @@ export class HomeSection {
 
   @Prop([String])
   tags: string[]; // For categorizing sections
+
+  @Prop({ enum: TabSection, default: TabSection.HOME })
+  section: TabSection;
 }
 
 export const HomeSectionSchema = SchemaFactory.createForClass(HomeSection);
-HomeSectionSchema.index({ displayOrder: 1, isVisible: 1 });
+HomeSectionSchema.index({ displayOrder: 1, isVisible: 1, section: 1 });
 HomeSectionSchema.index({ type: 1 });

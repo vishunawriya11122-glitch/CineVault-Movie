@@ -57,9 +57,11 @@ export interface Banner {
   subtitle?: string;
   imageUrl: string;
   actionType: string;
-  contentId?: string;
+  contentId?: any;
   isActive: boolean;
   order: number;
+  displayOrder: number;
+  section: 'home' | 'movies' | 'shows' | 'anime';
   startDate?: string;
   endDate?: string;
 }

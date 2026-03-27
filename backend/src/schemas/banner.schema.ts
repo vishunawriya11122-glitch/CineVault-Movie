@@ -3,6 +3,13 @@ import { Document, Types } from 'mongoose';
 
 export type BannerDocument = Banner & Document;
 
+export enum BannerSection {
+  HOME = 'home',
+  MOVIES = 'movies',
+  SHOWS = 'shows',
+  ANIME = 'anime',
+}
+
 @Schema({ timestamps: true })
 export class Banner {
   @Prop({ required: true })
@@ -40,7 +47,10 @@ export class Banner {
 
   @Prop()
   activeTo: Date;
+
+  @Prop({ enum: BannerSection, default: BannerSection.HOME })
+  section: BannerSection;
 }
 
 export const BannerSchema = SchemaFactory.createForClass(Banner);
-BannerSchema.index({ isActive: 1, displayOrder: 1 });
+BannerSchema.index({ isActive: 1, displayOrder: 1, section: 1 });

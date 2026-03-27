@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { HomeSectionsService } from './home-sections.service';
@@ -11,18 +11,18 @@ export class HomeSectionsController {
   constructor(private readonly homeSectionsService: HomeSectionsService) {}
 
   @Get('feed')
-  @ApiOperation({ summary: 'Get home feed with all sections and content' })
-  async getFeed() {
-    return this.homeSectionsService.getHomeFeed();
+  @ApiOperation({ summary: 'Get home feed with all sections and content (filtered by section)' })
+  async getFeed(@Query('section') section?: string) {
+    return this.homeSectionsService.getHomeFeed(section);
   }
 
   @Get('sections')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('admin', 'content_manager')
-  @ApiOperation({ summary: 'Get all sections (Admin)' })
-  async getAll() {
-    return this.homeSectionsService.getAll();
+  @ApiOperation({ summary: 'Get all sections (Admin), optionally filtered by section tab' })
+  async getAll(@Query('section') section?: string) {
+    return this.homeSectionsService.getAll(section);
   }
 
   @Post('sections')

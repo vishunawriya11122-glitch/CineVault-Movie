@@ -22,6 +22,15 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+const SECTIONS = [
+  { key: 'home', label: 'Home' },
+  { key: 'movies', label: 'Movies' },
+  { key: 'shows', label: 'Shows' },
+  { key: 'anime', label: 'Anime' },
+] as const;
+
+type SectionKey = (typeof SECTIONS)[number]['key'];
+
 interface HomeSection {
   _id: string;
   title: string;
@@ -35,6 +44,7 @@ interface HomeSection {
   bannerImageUrl?: string;
   contentIds: string[];
   maxItems: number;
+  section?: string;
 }
 
 interface MovieItem {
@@ -377,6 +387,7 @@ function AddContentModal({
 // ── Main Page ──
 export default function HomeSectionsPage() {
   const queryClient = useQueryClient();
+  const [activeSection, setActiveSection] = useState<SectionKey>('home');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [managingSectionId, setManagingSectionId] = useState<string | null>(null);
@@ -389,12 +400,13 @@ export default function HomeSectionsPage() {
     viewMoreText: 'View More',
     showTrendingNumbers: false,
     bannerImageUrl: '',
+    section: 'home' as string,
   });
 
   const { data: sections = [], isLoading } = useQuery<HomeSection[]>({
-    queryKey: ['homeSections'],
+    queryKey: ['homeSections', activeSection],
     queryFn: async () => {
-      const { data } = await api.get('/home/sections');
+      const { data } = await api.get(`/home/sections?section=${activeSection}`);
       return data;
     },
   });
@@ -415,7 +427,7 @@ export default function HomeSectionsPage() {
         ? api.patch(`/home/sections/${editingId}`, data)
         : api.post('/home/sections', data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['homeSections'] });
+      queryClient.invalidateQueries({ queryKey: ['homeSections', activeSection] });
       toast.success(editingId ? 'Section updated' : 'Section created');
       setShowForm(false);
       setEditingId(null);
@@ -427,7 +439,7 @@ export default function HomeSectionsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/home/sections/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['homeSections'] });
+      queryClient.invalidateQueries({ queryKey: ['homeSections', activeSection] });
       toast.success('Section deleted');
     },
   });
@@ -436,7 +448,7 @@ export default function HomeSectionsPage() {
     mutationFn: ({ id, isVisible }: { id: string; isVisible: boolean }) =>
       api.patch(`/home/sections/${id}`, { isVisible }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['homeSections'] });
+      queryClient.invalidateQueries({ queryKey: ['homeSections', activeSection] });
     },
   });
 
@@ -444,7 +456,7 @@ export default function HomeSectionsPage() {
     mutationFn: (orderedIds: string[]) =>
       api.post('/home/sections/reorder', { orderedIds }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['homeSections'] });
+      queryClient.invalidateQueries({ queryKey: ['homeSections', activeSection] });
       toast.success('Sections reordered');
     },
     onError: () => toast.error('Failed to reorder'),
@@ -460,6 +472,7 @@ export default function HomeSectionsPage() {
       viewMoreText: 'View More',
       showTrendingNumbers: false,
       bannerImageUrl: '',
+      section: activeSection,
     });
   };
 
@@ -473,6 +486,7 @@ export default function HomeSectionsPage() {
       viewMoreText: section.viewMoreText,
       showTrendingNumbers: section.showTrendingNumbers,
       bannerImageUrl: section.bannerImageUrl || '',
+      section: section.section || activeSection,
     });
     setEditingId(section._id);
     setShowForm(true);
@@ -494,7 +508,7 @@ export default function HomeSectionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Home Sections</h1>
+          <h1 className="text-2xl font-semibold">Section Manager</h1>
           <p className="text-sm text-text-secondary mt-1">
             Drag to reorder • Click + to manage content • Changes reflect in the app instantly
           </p>
@@ -510,6 +524,24 @@ export default function HomeSectionsPage() {
           <Plus size={18} />
           Add Section
         </button>
+      </div>
+
+      {/* Section Tabs */}
+      <div className="flex gap-2 bg-surface border border-border rounded-xl p-1">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setActiveSection(s.key)}
+            className={clsx(
+              'flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors',
+              activeSection === s.key
+                ? 'bg-gold text-background'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-light',
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
 
       {/* Create/Edit Form Modal */}
@@ -530,6 +562,22 @@ export default function HomeSectionsPage() {
               >
                 <X size={20} />
               </button>
+            </div>
+
+            {/* Section selector */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">Section</label>
+              <select
+                value={form.section}
+                onChange={(e) => setForm({ ...form, section: e.target.value })}
+                className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
+              >
+                {SECTIONS.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -686,8 +734,20 @@ export default function HomeSectionsPage() {
           ))}
         </div>
       ) : sections.length === 0 ? (
-        <div className="text-center py-20 text-text-secondary">
-          <p>No sections yet. Create one to get started!</p>
+        <div className="text-center py-20 text-text-secondary border border-border border-dashed rounded-xl">
+          <p className="text-lg font-medium">No sections for {SECTIONS.find((s) => s.key === activeSection)?.label}</p>
+          <p className="text-sm mt-1">Add a section to display content in this tab</p>
+          <button
+            onClick={() => {
+              setEditingId(null);
+              resetForm();
+              setShowForm(true);
+            }}
+            className="mt-4 bg-gold hover:bg-gold-light text-background px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+          >
+            <Plus size={16} className="inline mr-1" />
+            Add First Section
+          </button>
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
