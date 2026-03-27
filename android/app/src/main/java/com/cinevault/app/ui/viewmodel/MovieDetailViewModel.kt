@@ -22,6 +22,8 @@ data class MovieDetailUiState(
     val movie: MovieDto? = null,
     val related: List<MovieDto> = emptyList(),
     val seasons: List<SeasonDto> = emptyList(),
+    val episodes: List<EpisodeDto> = emptyList(),
+    val selectedSeasonId: String? = null,
     val reviews: List<ReviewDto> = emptyList(),
     val isInWatchlist: Boolean = false,
     val isLiked: Boolean = false,
@@ -107,8 +109,18 @@ class MovieDetailViewModel @Inject constructor(
                     }
 
                     // Load seasons if it's a series
-                    val seasons = if (movie.contentType == "series") {
+                    val seriesTypes = listOf("web_series", "tv_show", "anime")
+                    val seasons = if (movie.contentType in seriesTypes) {
                         when (val r = contentRepository.getSeasons(movieId)) {
+                            is Result.Success -> r.data
+                            else -> emptyList()
+                        }
+                    } else emptyList()
+
+                    // Auto-load episodes for first season
+                    val firstSeason = seasons.firstOrNull()
+                    val episodes = if (firstSeason != null) {
+                        when (val r = contentRepository.getEpisodes(firstSeason.id)) {
                             is Result.Success -> r.data
                             else -> emptyList()
                         }
@@ -120,6 +132,8 @@ class MovieDetailViewModel @Inject constructor(
                             movie = movie,
                             related = related,
                             seasons = seasons,
+                            episodes = episodes,
+                            selectedSeasonId = firstSeason?.id,
                             reviews = reviews,
                             isInWatchlist = inWatchlist,
                             watchProgress = watchProgress,
@@ -164,6 +178,17 @@ class MovieDetailViewModel @Inject constructor(
 
     fun selectTab(index: Int) {
         _uiState.update { it.copy(selectedTab = index) }
+    }
+
+    fun selectSeason(seasonId: String) {
+        if (seasonId == _uiState.value.selectedSeasonId) return
+        _uiState.update { it.copy(selectedSeasonId = seasonId, episodes = emptyList()) }
+        viewModelScope.launch {
+            when (val r = contentRepository.getEpisodes(seasonId)) {
+                is Result.Success -> _uiState.update { it.copy(episodes = r.data) }
+                else -> {}
+            }
+        }
     }
 
     fun refreshProgress() {

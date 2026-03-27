@@ -66,6 +66,15 @@ export class SeriesController {
     return this.seriesService.createEpisode({ ...body, seasonId });
   }
 
+  @Post('seasons/:seasonId/episodes/bulk')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin', 'content_manager')
+  @ApiOperation({ summary: 'Bulk create episodes (Admin)' })
+  async createBulkEpisodes(@Param('seasonId') seasonId: string, @Body() body: { episodes: any[] }) {
+    return this.seriesService.createBulkEpisodes(seasonId, body.episodes);
+  }
+
   @Patch('episodes/:id')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'), RolesGuard)

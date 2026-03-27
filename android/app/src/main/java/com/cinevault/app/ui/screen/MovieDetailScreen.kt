@@ -561,6 +561,18 @@ fun MovieDetailScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
+        // ── Episodes Section (for series content) ──
+        val isSeries = movie.contentType in listOf("web_series", "tv_show", "anime")
+        if (isSeries && uiState.seasons.isNotEmpty()) {
+            EpisodesSection(
+                seasons = uiState.seasons,
+                episodes = uiState.episodes,
+                selectedSeasonId = uiState.selectedSeasonId,
+                onSeasonSelected = { viewModel.selectSeason(it) },
+                onEpisodeClick = { episode -> onPlay(movie.id, episode.id) }
+            )
+        }
+
         // ── Tabs ──
         @Suppress("DEPRECATION")
         Divider(color = CineVaultTheme.colors.borderSubtle.copy(alpha = 0.5f), thickness = 0.5.dp)
@@ -867,6 +879,190 @@ private fun CommentsTabContent() {
         contentAlignment = Alignment.Center
     ) {
         Text("No comments yet", color = CineVaultTheme.colors.textSecondary, fontSize = 14.sp)
+    }
+}
+
+// ── Episodes Section ──
+
+@Composable
+private fun EpisodesSection(
+    seasons: List<SeasonDto>,
+    episodes: List<EpisodeDto>,
+    selectedSeasonId: String?,
+    onSeasonSelected: (String) -> Unit,
+    onEpisodeClick: (EpisodeDto) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        @Suppress("DEPRECATION")
+        Divider(color = CineVaultTheme.colors.borderSubtle.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+        // Section Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "EPISODES",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = CineVaultTheme.colors.textPrimary,
+                letterSpacing = 0.5.sp
+            )
+        }
+
+        // Season selector (chips)
+        if (seasons.size > 1) {
+            LazyRow(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(seasons.size) { index ->
+                    val season = seasons[index]
+                    val isSelected = season.id == selectedSeasonId
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) CineVaultTheme.colors.accentGold else Color.White.copy(alpha = 0.08f),
+                        modifier = Modifier.clickable { onSeasonSelected(season.id) }
+                    ) {
+                        Text(
+                            season.title ?: "Season ${season.seasonNumber}",
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color.Black else CineVaultTheme.colors.textSecondary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Episodes list
+        if (episodes.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No episodes available", color = CineVaultTheme.colors.textMuted, fontSize = 13.sp)
+            }
+        } else {
+            episodes.forEach { episode ->
+                EpisodeCard(
+                    episode = episode,
+                    onClick = { onEpisodeClick(episode) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun EpisodeCard(
+    episode: EpisodeDto,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Thumbnail
+        Box(
+            modifier = Modifier
+                .width(120.dp)
+                .height(68.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(CineVaultTheme.colors.surface),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!episode.thumbnailUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = episode.thumbnailUrl,
+                    contentDescription = episode.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = null,
+                    tint = CineVaultTheme.colors.textMuted,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            // Episode number badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(4.dp)
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    "E${episode.episodeNumber}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            // Play overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+
+        // Episode info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                episode.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = CineVaultTheme.colors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                episode.duration?.let {
+                    Text(
+                        "${it} min",
+                        fontSize = 11.sp,
+                        color = CineVaultTheme.colors.textMuted
+                    )
+                }
+            }
+            if (!episode.synopsis.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    episode.synopsis!!,
+                    fontSize = 11.sp,
+                    color = CineVaultTheme.colors.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 15.sp
+                )
+            }
+        }
     }
 }
 

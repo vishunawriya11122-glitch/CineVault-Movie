@@ -47,6 +47,24 @@ export class SeriesService {
     return episode;
   }
 
+  async createBulkEpisodes(seasonId: string, episodes: Partial<Episode>[]): Promise<EpisodeDocument[]> {
+    // Get current max episode number for this season
+    const lastEpisode = await this.episodeModel
+      .findOne({ seasonId: new Types.ObjectId(seasonId) })
+      .sort({ episodeNumber: -1 });
+    let nextNumber = (lastEpisode?.episodeNumber ?? 0) + 1;
+
+    const docs = episodes.map((ep) => ({
+      ...ep,
+      seasonId: new Types.ObjectId(seasonId),
+      episodeNumber: ep.episodeNumber ?? nextNumber++,
+    }));
+
+    const created = await this.episodeModel.insertMany(docs);
+    await this.seasonModel.findByIdAndUpdate(seasonId, { $inc: { episodeCount: created.length } });
+    return created as EpisodeDocument[];
+  }
+
   async updateEpisode(id: string, data: Partial<Episode>): Promise<EpisodeDocument> {
     const episode = await this.episodeModel.findByIdAndUpdate(id, data, { new: true });
     if (!episode) throw new NotFoundException('Episode not found');
