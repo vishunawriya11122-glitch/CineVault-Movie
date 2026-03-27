@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Film, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Upload, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import api from '../lib/api';
 import type { Movie } from '../types';
 import toast from 'react-hot-toast';
@@ -123,9 +123,10 @@ function SeriesCard({
   showEditEpisode: Episode | null;
   setShowEditEpisode: (ep: Episode | null) => void;
 }) {
-  const queryClient = useQueryClient();
+  // Locally added seasons — guaranteed to trigger re-render
+  const [localSeasons, setLocalSeasons] = useState<Season[]>([]);
 
-  const { data: seasons, refetch: refetchSeasons } = useQuery({
+  const { data: fetchedSeasons, refetch: refetchSeasons } = useQuery({
     queryKey: ['seasons', series._id],
     queryFn: async () => {
       const { data } = await api.get(`/series/${series._id}/seasons`);
@@ -134,28 +135,34 @@ function SeriesCard({
     enabled: isExpanded,
   });
 
+  // Merge fetched + locally added (deduplicated)
+  const seasons = useMemo(() => {
+    const fromServer = fetchedSeasons ?? [];
+    const newOnes = localSeasons.filter(ls => !fromServer.some(s => s._id === ls._id));
+    return [...fromServer, ...newOnes];
+  }, [fetchedSeasons, localSeasons]);
+
   const deleteSeason = useMutation({
     mutationFn: (id: string) => api.delete(`/series/seasons/${id}`),
-    onSuccess: async () => {
+    onSuccess: async (_data, deletedId) => {
+      setLocalSeasons(prev => prev.filter(s => s._id !== deletedId));
       await refetchSeasons();
       toast.success('Season deleted');
     },
     onError: () => toast.error('Failed to delete season'),
   });
 
-  const handleSeasonCreated = (createdSeason: any) => {
-    // Immediately inject new season into React Query cache (synchronous, guaranteed)
-    queryClient.setQueryData<Season[]>(['seasons', series._id], (old) =>
-      [...(old ?? []), createdSeason]
-    );
+  const handleSeasonCreated = useCallback((createdSeason: any) => {
+    // Direct local state update — 100% reliable, no React Query dependency
+    setLocalSeasons(prev => [...prev, createdSeason as Season]);
     setShowCreateSeason(null);
     if (createdSeason?._id) {
       setExpandedSeason(createdSeason._id);
       setShowBulkAdd(createdSeason._id);
     }
-    // Background refetch to sync with backend
+    // Background sync with server
     refetchSeasons();
-  };
+  }, [refetchSeasons, setShowCreateSeason, setExpandedSeason, setShowBulkAdd]);
 
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
@@ -243,6 +250,9 @@ function CreateSeasonForm({ seriesId, nextNumber, onSeasonCreated, onClose }: {
   const create = useMutation({
     mutationFn: () => api.post(`/series/${seriesId}/seasons`, form),
     onSuccess: (response) => {
+      console.log('=== Season API response ===');
+      console.log('response.data:', JSON.stringify(response.data, null, 2));
+      console.log('response.status:', response.status);
       toast.success('Season created');
       onSeasonCreated(response.data);
     },

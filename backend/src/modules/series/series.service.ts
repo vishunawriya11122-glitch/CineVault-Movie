@@ -12,10 +12,20 @@ export class SeriesService {
 
   // Seasons
   async getSeasons(seriesId: string): Promise<SeasonDocument[]> {
-    return this.seasonModel.find({ seriesId: new Types.ObjectId(seriesId) }).sort({ seasonNumber: 1 });
+    // Query with both ObjectId and string to handle both storage formats
+    return this.seasonModel.find({
+      $or: [
+        { seriesId: new Types.ObjectId(seriesId) },
+        { seriesId: seriesId },
+      ],
+    }).sort({ seasonNumber: 1 });
   }
 
   async createSeason(data: Partial<Season>): Promise<SeasonDocument> {
+    // Ensure seriesId is stored as ObjectId, not string
+    if (data.seriesId && typeof data.seriesId === 'string') {
+      data.seriesId = new Types.ObjectId(data.seriesId) as any;
+    }
     return this.seasonModel.create(data);
   }
 
@@ -27,12 +37,22 @@ export class SeriesService {
 
   async deleteSeason(id: string): Promise<void> {
     await this.seasonModel.findByIdAndDelete(id);
-    await this.episodeModel.deleteMany({ seasonId: new Types.ObjectId(id) });
+    await this.episodeModel.deleteMany({
+      $or: [
+        { seasonId: new Types.ObjectId(id) },
+        { seasonId: id },
+      ],
+    });
   }
 
   // Episodes
   async getEpisodes(seasonId: string): Promise<EpisodeDocument[]> {
-    return this.episodeModel.find({ seasonId: new Types.ObjectId(seasonId) }).sort({ episodeNumber: 1 });
+    return this.episodeModel.find({
+      $or: [
+        { seasonId: new Types.ObjectId(seasonId) },
+        { seasonId: seasonId },
+      ],
+    }).sort({ episodeNumber: 1 });
   }
 
   async getEpisode(id: string): Promise<EpisodeDocument> {
@@ -42,6 +62,10 @@ export class SeriesService {
   }
 
   async createEpisode(data: Partial<Episode>): Promise<EpisodeDocument> {
+    // Ensure seasonId is stored as ObjectId
+    if (data.seasonId && typeof data.seasonId === 'string') {
+      data.seasonId = new Types.ObjectId(data.seasonId) as any;
+    }
     const episode = await this.episodeModel.create(data);
     await this.seasonModel.findByIdAndUpdate(data.seasonId, { $inc: { episodeCount: 1 } });
     return episode;
