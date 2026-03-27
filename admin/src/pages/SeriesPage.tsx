@@ -123,6 +123,8 @@ function SeriesCard({
   showEditEpisode: Episode | null;
   setShowEditEpisode: (ep: Episode | null) => void;
 }) {
+  const queryClient = useQueryClient();
+
   const { data: seasons, refetch: refetchSeasons } = useQuery({
     queryKey: ['seasons', series._id],
     queryFn: async () => {
@@ -141,14 +143,18 @@ function SeriesCard({
     onError: () => toast.error('Failed to delete season'),
   });
 
-  const handleSeasonCreated = async (newSeasonId?: string) => {
-    await refetchSeasons();
+  const handleSeasonCreated = (createdSeason: any) => {
+    // Immediately inject new season into React Query cache (synchronous, guaranteed)
+    queryClient.setQueryData<Season[]>(['seasons', series._id], (old) =>
+      [...(old ?? []), createdSeason]
+    );
     setShowCreateSeason(null);
-    // Auto-expand newly created season so Bulk Add is visible
-    if (newSeasonId) {
-      setExpandedSeason(newSeasonId);
-      setShowBulkAdd(newSeasonId);
+    if (createdSeason?._id) {
+      setExpandedSeason(createdSeason._id);
+      setShowBulkAdd(createdSeason._id);
     }
+    // Background refetch to sync with backend
+    refetchSeasons();
   };
 
   return (
@@ -229,17 +235,16 @@ function SeriesCard({
 function CreateSeasonForm({ seriesId, nextNumber, onSeasonCreated, onClose }: {
   seriesId: string;
   nextNumber: number;
-  onSeasonCreated: (newSeasonId?: string) => Promise<void>;
+  onSeasonCreated: (createdSeason: any) => void;
   onClose: () => void;
 }) {
   const [form, setForm] = useState({ seasonNumber: nextNumber, title: `Season ${nextNumber}`, synopsis: '' });
 
   const create = useMutation({
     mutationFn: () => api.post(`/series/${seriesId}/seasons`, form),
-    onSuccess: async (response) => {
-      const newSeasonId = response?.data?._id;
+    onSuccess: (response) => {
       toast.success('Season created');
-      await onSeasonCreated(newSeasonId);
+      onSeasonCreated(response.data);
     },
     onError: (err: any) => {
       console.error('Season creation failed:', err?.response?.data || err);
