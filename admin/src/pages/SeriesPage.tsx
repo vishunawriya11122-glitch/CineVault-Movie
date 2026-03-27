@@ -123,9 +123,7 @@ function SeriesCard({
   showEditEpisode: Episode | null;
   setShowEditEpisode: (ep: Episode | null) => void;
 }) {
-  const queryClient = useQueryClient();
-
-  const { data: seasons } = useQuery({
+  const { data: seasons, refetch: refetchSeasons } = useQuery({
     queryKey: ['seasons', series._id],
     queryFn: async () => {
       const { data } = await api.get(`/series/${series._id}/seasons`);
@@ -136,12 +134,22 @@ function SeriesCard({
 
   const deleteSeason = useMutation({
     mutationFn: (id: string) => api.delete(`/series/seasons/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['seasons', series._id] });
+    onSuccess: async () => {
+      await refetchSeasons();
       toast.success('Season deleted');
     },
     onError: () => toast.error('Failed to delete season'),
   });
+
+  const handleSeasonCreated = async (newSeasonId?: string) => {
+    await refetchSeasons();
+    setShowCreateSeason(null);
+    // Auto-expand newly created season so Bulk Add is visible
+    if (newSeasonId) {
+      setExpandedSeason(newSeasonId);
+      setShowBulkAdd(newSeasonId);
+    }
+  };
 
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
@@ -183,6 +191,7 @@ function SeriesCard({
             <CreateSeasonForm
               seriesId={series._id}
               nextNumber={(seasons?.length ?? 0) + 1}
+              onSeasonCreated={handleSeasonCreated}
               onClose={() => setShowCreateSeason(null)}
             />
           )}
@@ -217,18 +226,25 @@ function SeriesCard({
 
 // ── Create Season Form ──
 
-function CreateSeasonForm({ seriesId, nextNumber, onClose }: { seriesId: string; nextNumber: number; onClose: () => void }) {
-  const queryClient = useQueryClient();
+function CreateSeasonForm({ seriesId, nextNumber, onSeasonCreated, onClose }: {
+  seriesId: string;
+  nextNumber: number;
+  onSeasonCreated: (newSeasonId?: string) => Promise<void>;
+  onClose: () => void;
+}) {
   const [form, setForm] = useState({ seasonNumber: nextNumber, title: `Season ${nextNumber}`, synopsis: '' });
 
   const create = useMutation({
     mutationFn: () => api.post(`/series/${seriesId}/seasons`, form),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['seasons', seriesId] });
+    onSuccess: async (response) => {
+      const newSeasonId = response?.data?._id;
       toast.success('Season created');
-      onClose();
+      await onSeasonCreated(newSeasonId);
     },
-    onError: () => toast.error('Failed to create season'),
+    onError: (err: any) => {
+      console.error('Season creation failed:', err?.response?.data || err);
+      toast.error(err?.response?.data?.message || 'Failed to create season');
+    },
   });
 
   return (
