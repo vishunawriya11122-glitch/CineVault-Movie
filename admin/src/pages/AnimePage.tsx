@@ -23,7 +23,7 @@ export default function AnimePage() {
           <Sparkles size={24} className="text-gold" /> Anime
         </h1>
         <button
-          onClick={() => navigate('/movies/new')}
+          onClick={() => navigate('/movies/new?section=anime')}
           className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
         >
           + Add Anime

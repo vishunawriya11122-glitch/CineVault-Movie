@@ -12,15 +12,15 @@ export default function MoviesPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['movies', page, statusFilter, typeFilter],
+    queryKey: ['movies', page, statusFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: '20' });
       if (statusFilter) params.set('status', statusFilter);
-      if (typeFilter) params.set('contentType', typeFilter);
+      // Movies page only shows movie content type
+      params.set('contentType', 'movie');
       const { data } = await api.get(`/movies?${params}`);
       return data;
     },
@@ -40,7 +40,7 @@ export default function MoviesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-2xl font-semibold">Movies & Content</h1>
+        <h1 className="text-2xl font-semibold">Movies</h1>
         <div className="flex items-center gap-2">
           <div className="flex gap-2 bg-surface-light rounded-lg p-1">
             <button
@@ -69,11 +69,11 @@ export default function MoviesPage() {
             </button>
           </div>
           <button
-            onClick={() => navigate('/movies/new')}
+            onClick={() => navigate('/movies/new?section=movie')}
             className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
           >
             <Plus size={18} />
-            Add Content
+            Add Movie
           </button>
         </div>
       </div>
@@ -89,19 +89,6 @@ export default function MoviesPage() {
           <option value="draft">Draft</option>
           <option value="published">Published</option>
           <option value="archived">Archived</option>
-        </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
-          className="bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-gold"
-        >
-          <option value="">All Types</option>
-          <option value="movie">Movie</option>
-          <option value="web_series">Web Series</option>
-          <option value="tv_show">TV Show</option>
-          <option value="documentary">Documentary</option>
-          <option value="anime">Anime</option>
-          <option value="short_film">Short Film</option>
         </select>
       </div>
 

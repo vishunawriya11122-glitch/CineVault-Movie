@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Film, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Upload, X } from 'lucide-react';
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import type { Movie } from '../types';
 import toast from 'react-hot-toast';
@@ -28,6 +29,7 @@ interface Episode {
 }
 
 export default function SeriesPage() {
+  const navigate = useNavigate();
   const [expandedSeries, setExpandedSeries] = useState<string | null>(null);
   const [expandedSeason, setExpandedSeason] = useState<string | null>(null);
   const [showCreateSeason, setShowCreateSeason] = useState<string | null>(null);
@@ -53,11 +55,23 @@ export default function SeriesPage() {
 
   const series: Movie[] = data ?? [];
 
+  // Auto-expand the first series on load
+  useEffect(() => {
+    if (series.length > 0 && !expandedSeries) {
+      setExpandedSeries(series[0]._id);
+    }
+  }, [series.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Series Manager</h1>
-        <p className="text-sm text-text-secondary">Manage seasons &amp; episodes for your shows</p>
+        <button
+          onClick={() => navigate('/movies/new?section=series')}
+          className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+        >
+          <Plus size={18} /> Add Series
+        </button>
       </div>
 
       {isLoading ? (
@@ -70,7 +84,13 @@ export default function SeriesPage() {
         <div className="flex flex-col items-center justify-center py-20 text-text-secondary">
           <Film size={48} className="mb-4 opacity-50" />
           <p>No series found</p>
-          <p className="text-sm text-text-muted mt-1">Create web series, TV shows, or anime from the Movies page first</p>
+          <p className="text-sm text-text-muted mt-1">Click "Add Series" to create your first web series or TV show</p>
+          <button
+            onClick={() => navigate('/movies/new?section=series')}
+            className="mt-4 flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+          >
+            <Plus size={16} /> Add Series
+          </button>
         </div>
       ) : (
         <div className="space-y-3">

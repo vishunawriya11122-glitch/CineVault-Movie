@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Plus, X } from 'lucide-react';
 import api from '../lib/api';
@@ -89,7 +89,18 @@ export default function MovieFormPage() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Section determines which admin area this form is used from
+  const section = searchParams.get('section') ?? 'movie'; // 'movie' | 'series' | 'anime'
+  const isSeries = section === 'series';
+  const isAnimeSection = section === 'anime';
+  const cancelPath = isSeries ? '/series' : isAnimeSection ? '/anime' : '/movies';
+
+  // For anime, track whether it's a movie or series (UI-only, both stored as 'anime')
+  const [animeFormat, setAnimeFormat] = useState<'anime_movie' | 'anime_series'>('anime_movie');
+  const showDuration = !isSeries && (!isAnimeSection || animeFormat === 'anime_movie');
 
   const [form, setForm] = useState({
     title: '',
@@ -101,7 +112,7 @@ export default function MovieFormPage() {
     trailerUrl: '',
     cbfcCertificateUrl: '',
     genres: [] as string[],
-    contentType: 'movie' as 'movie' | 'documentary' | 'anime' | 'web_series' | 'tv_show' | 'short_film',
+    contentType: (isSeries ? 'web_series' : isAnimeSection ? 'anime' : 'movie') as 'movie' | 'documentary' | 'anime' | 'web_series' | 'tv_show' | 'short_film',
     contentRating: 'UA',
     releaseYear: new Date().getFullYear(),
     duration: 0,
@@ -252,10 +263,18 @@ export default function MovieFormPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/movies')} className="text-text-secondary hover:text-text-primary">
+        <button onClick={() => navigate(cancelPath)} className="text-text-secondary hover:text-text-primary">
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-2xl font-semibold">{isEdit ? 'Edit Content' : 'Add New Content'}</h1>
+        <h1 className="text-2xl font-semibold">
+          {isEdit
+            ? 'Edit Content'
+            : isSeries
+              ? 'Add New Series'
+              : isAnimeSection
+                ? 'Add New Anime'
+                : 'Add New Movie'}
+        </h1>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -286,21 +305,70 @@ export default function MovieFormPage() {
             </div>
           </div>
 
+          {/* Anime format picker — visible only in Anime section when creating new */}
+          {isAnimeSection && !isEdit && (
+            <div>
+              <label className="block text-sm text-text-secondary mb-2">Content Format *</label>
+              <div className="flex gap-2">
+                {(['anime_movie', 'anime_series'] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    onClick={() => setAnimeFormat(fmt)}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                      animeFormat === fmt
+                        ? 'bg-gold text-background border-gold'
+                        : 'bg-surface-light border-border text-text-secondary hover:border-gold/50'
+                    }`}
+                  >
+                    {fmt === 'anime_movie' ? 'Anime Movie' : 'Anime Web Series'}
+                  </button>
+                ))}
+              </div>
+              {animeFormat === 'anime_series' && (
+                <p className="text-xs text-text-muted mt-1">Episodes &amp; duration are managed in the Series Manager</p>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-text-secondary mb-1">Content Type *</label>
-              <select
-                value={form.contentType}
-                onChange={(e) => setForm({ ...form, contentType: e.target.value as typeof form.contentType })}
-                className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
-              >
-                <option value="movie">Movie</option>
-                <option value="web_series">Web Series</option>
-                <option value="tv_show">TV Show</option>
-                <option value="documentary">Documentary</option>
-                <option value="anime">Anime</option>
-                <option value="short_film">Short Film</option>
-              </select>
+              {/* Content type — fixed per section, no dropdown */}
+              {isSeries ? (
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">Series Type *</label>
+                  <div className="flex gap-2">
+                    {(['web_series', 'tv_show'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setForm({ ...form, contentType: t })}
+                        className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                          form.contentType === t
+                            ? 'bg-gold text-background border-gold'
+                            : 'bg-surface-light border-border text-text-secondary hover:border-gold/50'
+                        }`}
+                      >
+                        {t === 'web_series' ? 'Web Series' : 'TV Show'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : isAnimeSection ? (
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">Content Type</label>
+                  <div className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-muted text-sm">
+                    Anime
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">Content Type</label>
+                  <div className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-muted text-sm">
+                    Movie
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm text-text-secondary mb-1">Director</label>
@@ -325,7 +393,7 @@ export default function MovieFormPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className={`grid gap-4 ${showDuration ? 'grid-cols-1 md:grid-cols-4' : 'grid-cols-1 md:grid-cols-1'}`}>
             <div>
               <label className="block text-sm text-text-secondary mb-1">Release Year</label>
               <input
@@ -335,33 +403,37 @@ export default function MovieFormPage() {
                 className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
               />
             </div>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">Duration - Hours</label>
-              <input
-                type="number"
-                min="0"
-                value={durationHours}
-                onChange={(e) => setDurationHours(parseInt(e.target.value) || 0)}
-                className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">Duration - Minutes</label>
-              <input
-                type="number"
-                min="0"
-                max="59"
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(Math.min(59, parseInt(e.target.value) || 0))}
-                className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">Total Duration</label>
-              <div className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-secondary flex items-center">
-                {durationHours}h {durationMinutes}m ({durationHours * 60 + durationMinutes} min)
-              </div>
-            </div>
+            {showDuration && (
+              <>
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">Duration - Hours</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={durationHours}
+                    onChange={(e) => setDurationHours(parseInt(e.target.value) || 0)}
+                    className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">Duration - Minutes</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(Math.min(59, parseInt(e.target.value) || 0))}
+                    className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">Total Duration</label>
+                  <div className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-secondary flex items-center">
+                    {durationHours}h {durationMinutes}m ({durationHours * 60 + durationMinutes} min)
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -785,7 +857,7 @@ export default function MovieFormPage() {
         <div className="flex gap-3 justify-end">
           <button
             type="button"
-            onClick={() => navigate('/movies')}
+            onClick={() => navigate(cancelPath)}
             className="px-6 py-2.5 rounded-xl border border-border text-text-secondary hover:text-text-primary transition-colors"
           >
             Cancel
