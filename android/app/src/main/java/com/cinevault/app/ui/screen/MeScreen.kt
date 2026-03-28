@@ -41,6 +41,8 @@ fun MeScreen(
     onNavigateToNotifications: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onMovieClick: (String) -> Unit = {},
+    /** Navigate to content from history. For movies: episodeId = null. For episodes: episodeId = episode id, contentId = seriesId. */
+    onHistoryItemClick: (contentId: String, episodeId: String?) -> Unit = { _, _ -> },
     profileViewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val uiState by profileViewModel.uiState.collectAsState()
@@ -89,7 +91,16 @@ fun MeScreen(
             Spacer(Modifier.height(12.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(uiState.watchHistory) { progress ->
-                    MeWatchHistoryCard(progress = progress, onClick = { onMovieClick(progress.contentId) })
+                    MeWatchHistoryCard(
+                        progress = progress,
+                        onClick = {
+                            if (progress.contentType == "episode" && !progress.seriesId.isNullOrBlank()) {
+                                onHistoryItemClick(progress.seriesId, progress.contentId)
+                            } else {
+                                onHistoryItemClick(progress.contentId, null)
+                            }
+                        }
+                    )
                 }
             }
             Spacer(Modifier.height(28.dp))

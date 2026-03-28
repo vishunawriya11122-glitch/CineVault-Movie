@@ -1,8 +1,36 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { HomeSection, HomeSectionDocument, TabSection } from '../../schemas/home-section.schema';
+import { HomeSection, HomeSectionDocument, TabSection, SectionType, CardSize } from '../../schemas/home-section.schema';
 import { Movie, MovieDocument, ContentStatus } from '../../schemas/movie.schema';
+
+// ── Default "Recently Added" system sections ──────────────────────────────────
+const RECENTLY_ADDED_DEFAULTS = [
+  {
+    slug: 'system-recently-added-home',
+    title: 'Recently Added',
+    section: TabSection.HOME,
+    contentTypes: [] as string[], // empty = all content types
+  },
+  {
+    slug: 'system-recently-added-movies',
+    title: 'Recently Added',
+    section: TabSection.MOVIES,
+    contentTypes: ['movie'] as string[],
+  },
+  {
+    slug: 'system-recently-added-shows',
+    title: 'Recently Added',
+    section: TabSection.SHOWS,
+    contentTypes: ['web_series', 'tv_show'] as string[],
+  },
+  {
+    slug: 'system-recently-added-anime',
+    title: 'Recently Added',
+    section: TabSection.ANIME,
+    contentTypes: ['anime'] as string[],
+  },
+];
 
 @Injectable()
 export class HomeSectionsService {
@@ -29,7 +57,13 @@ export class HomeSectionsService {
 
       if (section.isSystemManaged) {
         const filter: any = { status: ContentStatus.PUBLISHED };
-        if (section.contentType) filter.contentType = section.contentType;
+        // contentTypes (array) takes priority over contentType (single string)
+        if ((section as any).contentTypes?.length > 0) {
+          filter.contentType = { $in: (section as any).contentTypes };
+        } else if (section.contentType) {
+          filter.contentType = section.contentType;
+        }
+        // no filter = all types (Home "Recently Added")
         if (section.genre) filter.genres = section.genre;
 
         let sort: any = { createdAt: -1 };
@@ -120,5 +154,53 @@ export class HomeSectionsService {
     section.contentIds = section.contentIds.filter((id) => !removeSet.has(id.toString()));
     await section.save();
     return section;
+  }
+
+  /**
+   * Idempotently create one "Recently Added" system section per tab
+   * (Home / Movies / Shows / Anime). Safe to call multiple times — only
+   * creates the sections that are missing.
+   */
+  async seedRecentlyAdded(): Promise<{ created: number; message: string }> {
+    let created = 0;
+
+    for (const def of RECENTLY_ADDED_DEFAULTS) {
+      const existing = await this.sectionModel.findOne({ slug: def.slug });
+      if (existing) continue;
+
+      // Insert the new system section at displayOrder = 0 and push others down
+      await this.sectionModel.updateMany(
+        { section: def.section },
+        { $inc: { displayOrder: 1 } },
+      );
+
+      await this.sectionModel.create({
+        slug: def.slug,
+        title: def.title,
+        section: def.section,
+        contentTypes: def.contentTypes,
+        type: SectionType.STANDARD,
+        cardSize: CardSize.SMALL,
+        sortBy: 'createdAt', // newest first
+        maxItems: 20,
+        isSystemManaged: true,
+        isVisible: true,
+        showViewMore: true,
+        viewMoreText: 'View All',
+        showTrendingNumbers: false,
+        displayOrder: 0,
+        contentIds: [],
+      });
+
+      created++;
+    }
+
+    return {
+      created,
+      message:
+        created > 0
+          ? `${created} "Recently Added" section(s) created`
+          : 'All default sections already exist',
+    };
   }
 }

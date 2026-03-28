@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Film, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Upload, X } from 'lucide-react';
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Film, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Upload, X, Layers } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import type { Movie } from '../types';
@@ -30,13 +30,15 @@ interface Episode {
 
 export default function SeriesPage() {
   const navigate = useNavigate();
-  const [expandedSeries, setExpandedSeries] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  // selectedSeries = card clicked to manage; null = show grid only
+  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
   const [expandedSeason, setExpandedSeason] = useState<string | null>(null);
   const [showCreateSeason, setShowCreateSeason] = useState<string | null>(null);
   const [showBulkAdd, setShowBulkAdd] = useState<string | null>(null);
   const [showEditEpisode, setShowEditEpisode] = useState<Episode | null>(null);
 
-  // Fetch all series content
+  // Fetch all series content (web_series + tv_show + anime — anime web series are stored as contentType='anime')
   const { data, isLoading } = useQuery({
     queryKey: ['series-list'],
     queryFn: async () => {
@@ -54,18 +56,22 @@ export default function SeriesPage() {
   });
 
   const series: Movie[] = data ?? [];
+  const activeSeries = series.find((s) => s._id === selectedSeries) ?? null;
 
-  // Auto-expand the first series on load
-  useEffect(() => {
-    if (series.length > 0 && !expandedSeries) {
-      setExpandedSeries(series[0]._id);
-    }
-  }, [series.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const deleteSeries = useMutation({
+    mutationFn: (id: string) => api.delete(`/movies/${id}`),
+    onSuccess: (_data, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['series-list'] });
+      if (selectedSeries === deletedId) setSelectedSeries(null);
+      toast.success('Series deleted');
+    },
+    onError: () => toast.error('Failed to delete series'),
+  });
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Series Manager</h1>
+        <h1 className="text-2xl font-semibold">Series</h1>
         <button
           onClick={() => navigate('/movies/new?section=series')}
           className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
@@ -74,10 +80,11 @@ export default function SeriesPage() {
         </button>
       </div>
 
+      {/* ── Series Cards Grid ── */}
       {isLoading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="bg-surface border border-border rounded-xl p-4 animate-pulse h-20" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="aspect-[2/3] bg-surface border border-border rounded-xl animate-pulse" />
           ))}
         </div>
       ) : series.length === 0 ? (
@@ -93,35 +100,106 @@ export default function SeriesPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {series.map((s) => (
-            <SeriesCard
+            <div
               key={s._id}
-              series={s}
-              isExpanded={expandedSeries === s._id}
-              onToggle={() => setExpandedSeries(expandedSeries === s._id ? null : s._id)}
-              expandedSeason={expandedSeason}
-              setExpandedSeason={setExpandedSeason}
-              showCreateSeason={showCreateSeason}
-              setShowCreateSeason={setShowCreateSeason}
-              showBulkAdd={showBulkAdd}
-              setShowBulkAdd={setShowBulkAdd}
-              showEditEpisode={showEditEpisode}
-              setShowEditEpisode={setShowEditEpisode}
-            />
+              className={`group relative bg-surface border rounded-xl overflow-hidden transition-all cursor-pointer ${
+                selectedSeries === s._id
+                  ? 'border-gold shadow-lg shadow-gold/20'
+                  : 'border-border hover:border-gold/40'
+              }`}
+              onClick={() => setSelectedSeries(selectedSeries === s._id ? null : s._id)}
+            >
+              <div className="aspect-[2/3] relative overflow-hidden">
+                <img
+                  src={s.posterUrl || s.bannerUrl}
+                  alt={s.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-3">
+                  <h3 className="font-semibold text-sm leading-tight line-clamp-2">{s.title}</h3>
+                  <p className="text-xs text-text-muted mt-0.5">{s.releaseYear} · {s.contentType.replace('_', ' ')}</p>
+                </div>
+                {selectedSeries === s._id && (
+                  <div className="absolute top-2 left-2 bg-gold text-background text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+                    <Layers size={10} /> Managing
+                  </div>
+                )}
+              </div>
+              <div className="px-2 py-2 flex items-center justify-end gap-1 border-t border-border bg-surface">
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate(`/movies/${s._id}/edit?section=${s.contentType === 'anime' ? 'anime' : 'series'}`); }}
+                  className="p-1.5 rounded-lg hover:bg-surface-light text-text-secondary hover:text-gold transition-colors"
+                  title="Edit series"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete "${s.title}" and all its seasons/episodes?`)) {
+                      deleteSeries.mutate(s._id);
+                    }
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-error/10 text-text-secondary hover:text-error transition-colors"
+                  title="Delete series"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Inline Series Manager (shown when a card is selected) ── */}
+      {activeSeries && (
+        <div className="bg-surface border border-gold/30 rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-4 p-4 border-b border-border bg-surface-light/50">
+            <div className="w-12 h-16 rounded-lg overflow-hidden bg-surface-light flex-shrink-0">
+              <img src={activeSeries.posterUrl || activeSeries.bannerUrl} alt={activeSeries.title} className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-semibold text-lg truncate flex items-center gap-2">
+                <Layers size={18} className="text-gold" /> {activeSeries.title} — Season Manager
+              </h2>
+              <p className="text-sm text-text-secondary">{activeSeries.contentType.replace('_', ' ')} · {activeSeries.releaseYear}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate(`/movies/${activeSeries._id}/edit?section=${activeSeries.contentType === 'anime' ? 'anime' : 'series'}`)}
+                className="flex items-center gap-1.5 text-sm text-gold hover:text-gold-light px-3 py-1.5 rounded-lg border border-gold/30 hover:border-gold transition-colors"
+              >
+                <Pencil size={14} /> Edit
+              </button>
+              <button onClick={() => setSelectedSeries(null)} className="p-1.5 text-text-muted hover:text-text-primary">
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          <SeriesManager
+            series={activeSeries}
+            expandedSeason={expandedSeason}
+            setExpandedSeason={setExpandedSeason}
+            showCreateSeason={showCreateSeason}
+            setShowCreateSeason={setShowCreateSeason}
+            showBulkAdd={showBulkAdd}
+            setShowBulkAdd={setShowBulkAdd}
+            showEditEpisode={showEditEpisode}
+            setShowEditEpisode={setShowEditEpisode}
+          />
         </div>
       )}
     </div>
   );
 }
 
-// ── Series Card ──
+// ── Series Manager (inline season/episode manager) ──
 
-function SeriesCard({
+function SeriesManager({
   series,
-  isExpanded,
-  onToggle,
   expandedSeason,
   setExpandedSeason,
   showCreateSeason,
@@ -132,8 +210,6 @@ function SeriesCard({
   setShowEditEpisode,
 }: {
   series: Movie;
-  isExpanded: boolean;
-  onToggle: () => void;
   expandedSeason: string | null;
   setExpandedSeason: (id: string | null) => void;
   showCreateSeason: string | null;
@@ -143,7 +219,6 @@ function SeriesCard({
   showEditEpisode: Episode | null;
   setShowEditEpisode: (ep: Episode | null) => void;
 }) {
-  // Locally added seasons — guaranteed to trigger re-render
   const [localSeasons, setLocalSeasons] = useState<Season[]>([]);
 
   const { data: fetchedSeasons, refetch: refetchSeasons } = useQuery({
@@ -152,106 +227,78 @@ function SeriesCard({
       const { data } = await api.get(`/series/${series._id}/seasons`);
       return data as Season[];
     },
-    enabled: isExpanded,
   });
 
-  // Merge fetched + locally added (deduplicated)
   const seasons = useMemo(() => {
     const fromServer = fetchedSeasons ?? [];
-    const newOnes = localSeasons.filter(ls => !fromServer.some(s => s._id === ls._id));
+    const newOnes = localSeasons.filter((ls) => !fromServer.some((s) => s._id === ls._id));
     return [...fromServer, ...newOnes];
   }, [fetchedSeasons, localSeasons]);
 
   const deleteSeason = useMutation({
     mutationFn: (id: string) => api.delete(`/series/seasons/${id}`),
     onSuccess: async (_data, deletedId) => {
-      setLocalSeasons(prev => prev.filter(s => s._id !== deletedId));
+      setLocalSeasons((prev) => prev.filter((s) => s._id !== deletedId));
       await refetchSeasons();
       toast.success('Season deleted');
     },
     onError: () => toast.error('Failed to delete season'),
   });
 
-  const handleSeasonCreated = useCallback((createdSeason: any) => {
-    // Direct local state update — 100% reliable, no React Query dependency
-    setLocalSeasons(prev => [...prev, createdSeason as Season]);
-    setShowCreateSeason(null);
-    if (createdSeason?._id) {
-      setExpandedSeason(createdSeason._id);
-      setShowBulkAdd(createdSeason._id);
-    }
-    // Background sync with server
-    refetchSeasons();
-  }, [refetchSeasons, setShowCreateSeason, setExpandedSeason, setShowBulkAdd]);
+  const handleSeasonCreated = useCallback(
+    (createdSeason: Season) => {
+      setLocalSeasons((prev) => [...prev, createdSeason]);
+      setShowCreateSeason(null);
+      if (createdSeason?._id) {
+        setExpandedSeason(createdSeason._id);
+        setShowBulkAdd(createdSeason._id);
+      }
+      refetchSeasons();
+    },
+    [refetchSeasons, setShowCreateSeason, setExpandedSeason, setShowBulkAdd],
+  );
 
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
-      {/* Series Header */}
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-4 p-4 hover:bg-surface-light transition-colors text-left"
-      >
-        <div className="w-16 h-20 rounded-lg overflow-hidden bg-surface-light flex-shrink-0">
-          <img src={series.posterUrl || series.bannerUrl} alt={series.title} className="w-full h-full object-cover" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-lg truncate">{series.title}</h3>
-          <p className="text-sm text-text-secondary">
-            {series.contentType.replace('_', ' ')} &middot; {series.releaseYear} &middot; {series.genres?.join(', ')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-text-secondary">
-          <span className="text-xs bg-surface-light px-2 py-1 rounded">{seasons?.length ?? 0} seasons</span>
-          {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-        </div>
-      </button>
+    <div>
+      <div className="p-4 flex items-center justify-between bg-surface-light/30">
+        <h4 className="text-sm font-medium text-text-secondary uppercase tracking-wider">
+          Seasons ({seasons.length})
+        </h4>
+        <button
+          onClick={() => setShowCreateSeason(series._id)}
+          className="flex items-center gap-1 text-sm text-gold hover:text-gold-light"
+        >
+          <Plus size={16} /> Add Season
+        </button>
+      </div>
 
-      {/* Expanded: Seasons */}
-      {isExpanded && (
-        <div className="border-t border-border">
-          <div className="p-4 flex items-center justify-between bg-surface-light/50">
-            <h4 className="text-sm font-medium text-text-secondary uppercase tracking-wider">Seasons</h4>
-            <button
-              onClick={() => setShowCreateSeason(series._id)}
-              className="flex items-center gap-1 text-sm text-gold hover:text-gold-light"
-            >
-              <Plus size={16} /> Add Season
-            </button>
-          </div>
+      {showCreateSeason === series._id && (
+        <CreateSeasonForm
+          seriesId={series._id}
+          nextNumber={(seasons.length ?? 0) + 1}
+          onSeasonCreated={handleSeasonCreated}
+          onClose={() => setShowCreateSeason(null)}
+        />
+      )}
 
-          {/* Create Season Form */}
-          {showCreateSeason === series._id && (
-            <CreateSeasonForm
-              seriesId={series._id}
-              nextNumber={(seasons?.length ?? 0) + 1}
-              onSeasonCreated={handleSeasonCreated}
-              onClose={() => setShowCreateSeason(null)}
-            />
-          )}
-
-          {/* Seasons List */}
-          {seasons && seasons.length > 0 ? (
-            seasons.map((season) => (
-              <SeasonRow
-                key={season._id}
-                season={season}
-                isExpanded={expandedSeason === season._id}
-                onToggle={() => setExpandedSeason(expandedSeason === season._id ? null : season._id)}
-                onDelete={() => {
-                  if (confirm('Delete this season and all its episodes?')) {
-                    deleteSeason.mutate(season._id);
-                  }
-                }}
-                showBulkAdd={showBulkAdd}
-                setShowBulkAdd={setShowBulkAdd}
-                showEditEpisode={showEditEpisode}
-                setShowEditEpisode={setShowEditEpisode}
-              />
-            ))
-          ) : (
-            <div className="p-6 text-center text-text-muted text-sm">No seasons yet. Add one above.</div>
-          )}
-        </div>
+      {seasons.length === 0 ? (
+        <div className="p-8 text-center text-text-muted text-sm">No seasons yet. Add one above.</div>
+      ) : (
+        seasons.map((season) => (
+          <SeasonRow
+            key={season._id}
+            season={season}
+            isExpanded={expandedSeason === season._id}
+            onToggle={() => setExpandedSeason(expandedSeason === season._id ? null : season._id)}
+            onDelete={() => {
+              if (confirm('Delete this season and all its episodes?')) deleteSeason.mutate(season._id);
+            }}
+            showBulkAdd={showBulkAdd}
+            setShowBulkAdd={setShowBulkAdd}
+            showEditEpisode={showEditEpisode}
+            setShowEditEpisode={setShowEditEpisode}
+          />
+        ))
       )}
     </div>
   );

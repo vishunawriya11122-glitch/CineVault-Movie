@@ -7,6 +7,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -67,6 +68,7 @@ fun MovieDetailScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var selectedTab by remember { mutableIntStateOf(0) }
     val isLiked = uiState.isLiked
+    var showMoreSeasonsSheet by remember { mutableStateOf(false) }
 
     // Refresh watch progress when returning from the player screen
     DisposableEffect(lifecycleOwner) {
@@ -159,10 +161,12 @@ fun MovieDetailScreen(
     }
 
     val hasTrailer = !movie.trailerUrl.isNullOrBlank()
+    val isSeries = movie.contentType in listOf("web_series", "tv_show", "anime")
 
     // Resume watching logic
     val watchProgress = uiState.watchProgress
-    val hasProgress = watchProgress != null && !watchProgress.isCompleted && watchProgress.currentTime > 0
+    // For series: any saved progress (even completed episode) means the user has started watching
+    val hasProgress = watchProgress != null && watchProgress.currentTime > 0
     val progressPercent = if (hasProgress && watchProgress!!.totalDuration > 0)
         (watchProgress.currentTime.toFloat() / watchProgress.totalDuration).coerceIn(0f, 1f) else 0f
 
@@ -282,14 +286,37 @@ fun MovieDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                 }
-                Text(
-                    movie.title,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (isSeries && uiState.seasons.isNotEmpty()) {
+                    val selectedSeason = uiState.seasons.find { it.id == uiState.selectedSeasonId }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            movie.title,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        SeasonDropdownBadge(
+                            seasonName = "Season ${selectedSeason?.seasonNumber ?: 1}",
+                            onClick = { showMoreSeasonsSheet = true }
+                        )
+                    }
+                } else {
+                    Text(
+                        movie.title,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 MovieMetaChips(movie)
             }
@@ -376,14 +403,37 @@ fun MovieDetailScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
-                    Text(
-                        movie.title,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (isSeries && uiState.seasons.isNotEmpty()) {
+                        val selectedSeason = uiState.seasons.find { it.id == uiState.selectedSeasonId }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                movie.title,
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            SeasonDropdownBadge(
+                                seasonName = "Season ${selectedSeason?.seasonNumber ?: 1}",
+                                onClick = { showMoreSeasonsSheet = true }
+                            )
+                        }
+                    } else {
+                        Text(
+                            movie.title,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
                     MovieMetaChips(movie)
                 }
@@ -444,7 +494,19 @@ fun MovieDetailScreen(
 
             // ── Premium WATCH NOW / RESUME WATCHING button ──
             Button(
-                onClick = { if (movie.id.isNotBlank()) onPlay(movie.id, null) },
+                onClick = {
+                    if (movie.id.isNotBlank()) {
+                        val episodeIdToPlay = when {
+                            // Series: resume last watched episode
+                            isSeries && hasProgress -> watchProgress?.contentId
+                            // Series: no prior progress → start from first episode
+                            isSeries && !hasProgress -> uiState.episodes.firstOrNull()?.id
+                            // Movie / Anime Movie: no episode ID needed
+                            else -> null
+                        }
+                        onPlay(movie.id, episodeIdToPlay)
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -568,8 +630,10 @@ fun MovieDetailScreen(
                 seasons = uiState.seasons,
                 episodes = uiState.episodes,
                 selectedSeasonId = uiState.selectedSeasonId,
+                seriesPosterUrl = movie.posterUrl,
                 onSeasonSelected = { viewModel.selectSeason(it) },
-                onEpisodeClick = { episode -> onPlay(movie.id, episode.id) }
+                onEpisodeClick = { episode -> onPlay(movie.id, episode.id) },
+                onMoreSeasonsClick = { showMoreSeasonsSheet = true }
             )
         }
 
@@ -621,15 +685,28 @@ fun MovieDetailScreen(
 
         Spacer(modifier = Modifier.height(40.dp))
     }
+
+    // ── More Seasons Bottom Sheet ──
+    if (showMoreSeasonsSheet && uiState.seasons.isNotEmpty()) {
+        MoreSeasonsBottomSheet(
+            seasons = uiState.seasons,
+            episodes = uiState.episodes,
+            selectedSeasonId = uiState.selectedSeasonId,
+            onSeasonSelected = { viewModel.selectSeason(it) },
+            onEpisodeClick = { episode -> onPlay(movie.id, episode.id) },
+            onDismiss = { showMoreSeasonsSheet = false }
+        )
+    }
 }
 
 // ── Premium Meta Chips (highlight boxes) ──
 
 @Composable
 private fun MovieMetaChips(movie: MovieDto) {
+    val seriesTypes = listOf("web_series", "tv_show", "anime")
     val metaParts = buildList {
         movie.releaseYear?.let { add(it.toString()) }
-        movie.duration?.let { add("$it min") }
+        if (movie.contentType !in seriesTypes) movie.duration?.let { add("$it min") }
         movie.country?.let { if (it.isNotBlank()) add(it) }
         movie.contentRating?.let { add(it) }
         movie.genres.take(2).forEach { add(it) }
@@ -889,14 +966,19 @@ private fun EpisodesSection(
     seasons: List<SeasonDto>,
     episodes: List<EpisodeDto>,
     selectedSeasonId: String?,
+    seriesPosterUrl: String?,
     onSeasonSelected: (String) -> Unit,
     onEpisodeClick: (EpisodeDto) -> Unit,
+    onMoreSeasonsClick: () -> Unit,
 ) {
+    val selectedSeason = seasons.find { it.id == selectedSeasonId }
+    val episodeCount = selectedSeason?.episodeCount?.takeIf { it > 0 } ?: episodes.size
+
     Column(modifier = Modifier.fillMaxWidth()) {
         @Suppress("DEPRECATION")
         Divider(color = CineVaultTheme.colors.borderSubtle.copy(alpha = 0.5f), thickness = 0.5.dp)
 
-        // Section Header
+        // Header: "Season X • N Episodes" + "More Season >"
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -904,62 +986,70 @@ private fun EpisodesSection(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                "EPISODES",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = CineVaultTheme.colors.textPrimary,
-                letterSpacing = 0.5.sp
-            )
-        }
-
-        // Season selector (chips)
-        if (seasons.size > 1) {
-            LazyRow(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(seasons.size) { index ->
-                    val season = seasons[index]
-                    val isSelected = season.id == selectedSeasonId
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isSelected) CineVaultTheme.colors.accentGold else Color.White.copy(alpha = 0.08f),
-                        modifier = Modifier.clickable { onSeasonSelected(season.id) }
-                    ) {
-                        Text(
-                            season.title ?: "Season ${season.seasonNumber}",
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) Color.Black else CineVaultTheme.colors.textSecondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
+            Column {
+                Text(
+                    "EPISODES",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CineVaultTheme.colors.textSecondary,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    "${selectedSeason?.title ?: "Season ${selectedSeason?.seasonNumber ?: 1}"} \u2022 $episodeCount Episodes",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CineVaultTheme.colors.textPrimary
+                )
+            }
+            if (seasons.size > 1) {
+                TextButton(onClick = onMoreSeasonsClick) {
+                    Text(
+                        "More Season",
+                        color = CineVaultTheme.colors.accentGold,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Icon(
+                        Icons.Default.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = CineVaultTheme.colors.accentGold,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // Episodes list
+        // Horizontal episodes carousel
         if (episodes.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(32.dp),
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No episodes available", color = CineVaultTheme.colors.textMuted, fontSize = 13.sp)
+                CircularProgressIndicator(
+                    color = CineVaultTheme.colors.accentGold,
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp
+                )
             }
         } else {
-            episodes.forEach { episode ->
-                EpisodeCard(
-                    episode = episode,
-                    onClick = { onEpisodeClick(episode) }
-                )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(episodes) { episode ->
+                    HorizontalEpisodeCard(
+                        episode = episode,
+                        seriesPosterUrl = seriesPosterUrl,
+                        onClick = { onEpisodeClick(episode) }
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -1062,6 +1152,300 @@ private fun EpisodeCard(
                     lineHeight = 15.sp
                 )
             }
+        }
+    }
+}
+
+// ── Season Dropdown Badge ──
+
+@Composable
+private fun SeasonDropdownBadge(
+    seasonName: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.White.copy(alpha = 0.14f),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                seasonName,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = CineVaultTheme.colors.accentGold
+            )
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = "Select Season",
+                tint = CineVaultTheme.colors.accentGold,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+// ── Horizontal Episode Card ──
+
+@Composable
+private fun HorizontalEpisodeCard(
+    episode: EpisodeDto,
+    seriesPosterUrl: String?,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(160.dp)
+                .height(90.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(CineVaultTheme.colors.surface),
+            contentAlignment = Alignment.Center
+        ) {
+            val thumbUrl = episode.thumbnailUrl?.takeIf { it.isNotBlank() } ?: seriesPosterUrl
+            if (!thumbUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = thumbUrl,
+                    contentDescription = episode.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Color.Black.copy(
+                                alpha = if (episode.thumbnailUrl.isNullOrBlank()) 0.45f else 0.15f
+                            )
+                        )
+                )
+            } else {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = null,
+                    tint = CineVaultTheme.colors.textMuted,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+
+            // Centre play icon
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = "Play",
+                tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier
+                    .size(36.dp)
+                    .align(Alignment.Center)
+            )
+
+            // Episode badge – top-left
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(5.dp)
+                    .background(CineVaultTheme.colors.accentGold, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    "E${episode.episodeNumber}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
+                )
+            }
+
+            // Duration badge – bottom-right
+            episode.duration?.let { dur ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(5.dp)
+                        .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        formatEpisodeDuration(dur),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(7.dp))
+        Text(
+            "Episode ${episode.episodeNumber}",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = CineVaultTheme.colors.textPrimary,
+            maxLines = 1
+        )
+        if (episode.title.isNotBlank()) {
+            Text(
+                episode.title,
+                fontSize = 11.sp,
+                color = CineVaultTheme.colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun formatEpisodeDuration(minutes: Int): String =
+    if (minutes >= 60) {
+        val h = minutes / 60
+        val m = minutes % 60
+        if (m == 0) "${h}h" else "${h}h ${m}m"
+    } else "${minutes}m"
+
+// ── More Seasons Bottom Sheet ──
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MoreSeasonsBottomSheet(
+    seasons: List<SeasonDto>,
+    episodes: List<EpisodeDto>,
+    selectedSeasonId: String?,
+    onSeasonSelected: (String) -> Unit,
+    onEpisodeClick: (EpisodeDto) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var sheetSelectedId by remember { mutableStateOf(selectedSeasonId) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF12122B),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .width(40.dp)
+                    .height(4.dp)
+                    .background(Color.White.copy(alpha = 0.3f), RoundedCornerShape(2.dp))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 20.dp)
+        ) {
+            Text(
+                "SELECT SEASON",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = CineVaultTheme.colors.textSecondary,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
+
+            // Season tabs
+            LazyRow(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(seasons) { season ->
+                    val isSelected = season.id == sheetSelectedId
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) CineVaultTheme.colors.accentGold
+                                else Color.White.copy(alpha = 0.08f),
+                        modifier = Modifier.clickable {
+                            sheetSelectedId = season.id
+                            onSeasonSelected(season.id)
+                        }
+                    ) {
+                        Text(
+                            season.title ?: "Season ${season.seasonNumber}",
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color.Black
+                                    else CineVaultTheme.colors.textSecondary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+
+            @Suppress("DEPRECATION")
+            Divider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Episode squares for the visible season
+            val currentSeason = seasons.find { it.id == sheetSelectedId }
+            val currentEpisodes = if (sheetSelectedId == selectedSeasonId) episodes else emptyList()
+            val displayCount = currentEpisodes.size.takeIf { it > 0 }
+                ?: (currentSeason?.episodeCount ?: 0)
+
+            if (displayCount > 0) {
+                Text(
+                    "${currentSeason?.title ?: "Season ${currentSeason?.seasonNumber ?: 1}"} \u00b7 $displayCount Episodes",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = CineVaultTheme.colors.textPrimary,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 10.dp)
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (currentEpisodes.isNotEmpty()) {
+                        items(currentEpisodes) { ep ->
+                            EpisodeNumberSquare(
+                                number = ep.episodeNumber,
+                                isLoaded = true,
+                                onClick = { onEpisodeClick(ep); onDismiss() }
+                            )
+                        }
+                    } else {
+                        items(displayCount) { index ->
+                            EpisodeNumberSquare(
+                                number = index + 1,
+                                isLoaded = false,
+                                onClick = {}
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeNumberSquare(
+    number: Int,
+    isLoaded: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (isLoaded) Color.White.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.05f),
+        modifier = Modifier
+            .size(52.dp)
+            .clickable(enabled = isLoaded, onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                number.toString(),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isLoaded) CineVaultTheme.colors.textPrimary
+                        else CineVaultTheme.colors.textMuted
+            )
         }
     }
 }

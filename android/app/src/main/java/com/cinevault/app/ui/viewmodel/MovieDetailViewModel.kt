@@ -101,15 +101,23 @@ class MovieDetailViewModel @Inject constructor(
                         }
                     } ?: false
 
-                    val watchProgress = watchProgressDeferred?.let {
-                        when (val r = it.await()) {
+                    // For series, load the latest episode progress instead of series-level progress
+                    val seriesTypes = listOf("web_series", "tv_show", "anime")
+                    val watchProgress = if (profileId != null && movie.contentType in seriesTypes) {
+                        when (val r = watchProgressRepository.getLatestEpisodeProgress(profileId, movieId)) {
                             is Result.Success -> r.data
                             else -> null
+                        }
+                    } else {
+                        watchProgressDeferred?.let {
+                            when (val r = it.await()) {
+                                is Result.Success -> r.data
+                                else -> null
+                            }
                         }
                     }
 
                     // Load seasons if it's a series
-                    val seriesTypes = listOf("web_series", "tv_show", "anime")
                     android.util.Log.d("MovieDetail", "contentType: ${movie.contentType}, isSeries: ${movie.contentType in seriesTypes}")
                     val seasons = if (movie.contentType in seriesTypes) {
                         when (val r = contentRepository.getSeasons(movieId)) {
@@ -212,9 +220,18 @@ class MovieDetailViewModel @Inject constructor(
             // Small delay to let the player's final save API call complete before we fetch
             delay(2_000)
             val profileId = sessionManager.activeProfileId.firstOrNull() ?: return@launch
-            when (val r = watchProgressRepository.getProgress(profileId, movieId)) {
-                is Result.Success -> _uiState.update { it.copy(watchProgress = r.data) }
-                else -> {}
+            val seriesTypes = listOf("web_series", "tv_show", "anime")
+            val isSeries = _uiState.value.movie?.contentType in seriesTypes
+            if (isSeries) {
+                when (val r = watchProgressRepository.getLatestEpisodeProgress(profileId, movieId)) {
+                    is Result.Success -> _uiState.update { it.copy(watchProgress = r.data) }
+                    else -> {}
+                }
+            } else {
+                when (val r = watchProgressRepository.getProgress(profileId, movieId)) {
+                    is Result.Success -> _uiState.update { it.copy(watchProgress = r.data) }
+                    else -> {}
+                }
             }
         }
     }

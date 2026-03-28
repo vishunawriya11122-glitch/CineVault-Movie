@@ -1,11 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
-import { Sparkles } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Sparkles, Pencil, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import type { Movie } from '../types';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
 export default function AnimePage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const { data, isLoading } = useQuery({
     queryKey: ['anime'],
     queryFn: async () => {
@@ -15,6 +18,15 @@ export default function AnimePage() {
   });
 
   const animeList: Movie[] = data?.movies ?? data?.data ?? data ?? [];
+
+  const deleteAnime = useMutation({
+    mutationFn: (id: string) => api.delete(`/movies/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['anime'] });
+      toast.success('Anime deleted');
+    },
+    onError: () => toast.error('Failed to delete anime'),
+  });
 
   return (
     <div className="space-y-6">
@@ -47,8 +59,8 @@ export default function AnimePage() {
           {animeList.map((anime) => (
             <div
               key={anime._id}
-              onClick={() => navigate(`/movies/${anime._id}/edit`)}
               className="group cursor-pointer bg-surface border border-border rounded-xl overflow-hidden hover:border-gold/40 transition-all"
+              onClick={() => navigate(`/movies/${anime._id}/edit?section=anime`)}
             >
               <div className="aspect-[2/3] relative overflow-hidden">
                 <img
@@ -67,19 +79,26 @@ export default function AnimePage() {
                   </span>
                 </div>
               </div>
-              <div className="px-3 py-2 flex items-center justify-between text-xs text-text-muted">
-                <span>{anime.genres?.slice(0, 2).join(', ')}</span>
-                <span
-                  className={
-                    anime.status === 'published'
-                      ? 'text-success'
-                      : anime.status === 'draft'
-                        ? 'text-warning'
-                        : 'text-text-muted'
-                  }
-                >
-                  {anime.status}
-                </span>
+              <div className="px-2 py-2 flex items-center justify-between text-xs text-text-muted border-t border-border">
+                <span className="pl-1">{anime.genres?.slice(0, 2).join(', ')}</span>
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => navigate(`/movies/${anime._id}/edit?section=anime`)}
+                    className="p-1.5 rounded-lg hover:bg-surface-light text-text-secondary hover:text-gold transition-colors"
+                    title="Edit"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete "${anime.title}"?`)) deleteAnime.mutate(anime._id);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-error/10 text-text-secondary hover:text-error transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}

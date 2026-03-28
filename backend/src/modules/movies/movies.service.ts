@@ -6,6 +6,40 @@ import { CreateMovieDto } from './dto/create-movie.dto';
 import { UpdateMovieDto } from './dto/update-movie.dto';
 import { QueryMoviesDto } from './dto/query-movies.dto';
 
+/**
+ * Convert any Google Drive sharing link to a direct-download URL that video players can stream.
+ * Handles: /file/d/ID/view, /open?id=ID, /uc?id=ID, and already-converted URLs.
+ */
+function toDirectDriveUrl(url: string): string {
+  const patterns = [
+    /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/,
+    /drive\.usercontent\.google\.com\/.*id=([a-zA-Z0-9_-]+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) {
+      return `https://drive.usercontent.google.com/download?id=${match[1]}&export=download&confirm=t`;
+    }
+  }
+  return url;
+}
+
+/** Convert all streaming source URLs in a movie's data (in-place on the Mongoose document). */
+function convertMovieStreamingSources(movie: MovieDocument): MovieDocument {
+  if (movie.streamingSources && Array.isArray(movie.streamingSources)) {
+    movie.streamingSources = movie.streamingSources.map((src: any) => ({
+      ...src,
+      url: toDirectDriveUrl(src.url),
+    })) as any;
+  }
+  if (movie.trailerUrl) {
+    (movie as any).trailerUrl = toDirectDriveUrl(movie.trailerUrl);
+  }
+  return movie;
+}
+
 @Injectable()
 export class MoviesService {
   constructor(@InjectModel(Movie.name) private movieModel: Model<MovieDocument>) {}
@@ -31,7 +65,8 @@ export class MoviesService {
     movie.viewCount += 1;
     await movie.save();
 
-    return movie;
+    // Convert any Google Drive sharing links to direct-download URLs
+    return convertMovieStreamingSources(movie);
   }
 
   async findAll(query: QueryMoviesDto): Promise<{ movies: MovieDocument[]; total: number; page: number; pages: number }> {

@@ -93,4 +93,13 @@ export class SeriesController {
     await this.seriesService.deleteEpisode(id);
     return { message: 'Episode deleted' };
   }
+
+  @Post('seasons/:seasonId/episodes/generate-thumbnails')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin', 'content_manager')
+  @ApiOperation({ summary: 'Auto-generate Drive thumbnails for all episodes in a season (Admin)' })
+  async generateThumbnails(@Param('seasonId') seasonId: string) {
+    return this.seriesService.generateThumbnailsForSeason(seasonId);
+  }
 }

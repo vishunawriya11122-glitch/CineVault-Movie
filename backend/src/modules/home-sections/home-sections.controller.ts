@@ -63,6 +63,15 @@ export class HomeSectionsController {
     return { message: 'Sections reordered' };
   }
 
+  @Post('sections/seed-defaults')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin', 'content_manager')
+  @ApiOperation({ summary: 'Seed default "Recently Added" system sections for all tabs (Admin)' })
+  async seedDefaults() {
+    return this.homeSectionsService.seedRecentlyAdded();
+  }
+
   @Post('sections/:id/add-content')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'), RolesGuard)

@@ -15,15 +15,20 @@ class WatchProgressRepository @Inject constructor(private val api: CineVaultApi)
         duration: Long,
         contentTitle: String? = null,
         thumbnailUrl: String? = null,
+        contentType: String = "movie",
+        seriesId: String? = null,
+        episodeTitle: String? = null,
     ): Result<WatchProgressDto> {
         return try {
             val request = UpdateProgressRequest(
                 contentId = contentId,
-                contentType = "movie",
+                contentType = contentType,
                 currentTime = position.toInt(),
                 totalDuration = duration.toInt(),
                 contentTitle = contentTitle,
                 thumbnailUrl = thumbnailUrl,
+                seriesId = seriesId,
+                episodeTitle = episodeTitle,
             )
             val response = api.updateProgress(profileId, request)
             if (response.isSuccessful && response.body() != null) {
@@ -39,6 +44,22 @@ class WatchProgressRepository @Inject constructor(private val api: CineVaultApi)
     suspend fun getProgress(profileId: String, contentId: String): Result<WatchProgressDto?> {
         return try {
             val response = api.getProgress(profileId, contentId)
+            if (response.isSuccessful) {
+                Result.Success(response.body())
+            } else if (response.code() == 404) {
+                Result.Success(null)
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Success(null)
+        }
+    }
+
+    /** For series: returns the most recently watched episode's progress. */
+    suspend fun getLatestEpisodeProgress(profileId: String, seriesId: String): Result<WatchProgressDto?> {
+        return try {
+            val response = api.getLatestEpisodeForSeries(profileId, seriesId)
             if (response.isSuccessful) {
                 Result.Success(response.body())
             } else if (response.code() == 404) {

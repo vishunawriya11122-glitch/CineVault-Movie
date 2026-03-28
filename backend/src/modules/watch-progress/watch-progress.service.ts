@@ -93,6 +93,24 @@ export class WatchProgressService {
     });
   }
 
+  async getLatestEpisodeForSeries(
+    userId: string,
+    profileId: string,
+    seriesId: string,
+  ): Promise<WatchProgressDocument | null> {
+    // Primary: find episode progress records linked to this series via seriesId field
+    const bySeriesId = await this.progressModel
+      .findOne({
+        userId: new Types.ObjectId(userId),
+        profileId: new Types.ObjectId(profileId),
+        seriesId: new Types.ObjectId(seriesId),
+        contentType: 'episode',
+      })
+      .sort({ lastWatchedAt: -1 });
+
+    return bySeriesId;
+  }
+
   async clearHistory(userId: string, profileId: string): Promise<void> {
     await this.progressModel.deleteMany({
       userId: new Types.ObjectId(userId),

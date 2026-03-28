@@ -25,8 +25,10 @@ data class PlayerUiState(
     val error: String? = null,
     val movie: MovieDto? = null,
     val streamingUrl: String? = null,
+    val fallbackUrls: List<String> = emptyList(), // 3-layer Drive fallback queue
     val episodes: List<EpisodeDto> = emptyList(),
     val currentEpisodeIndex: Int = 0,
+    val currentEpisodeTitle: String? = null,
     val showControls: Boolean = true,
     val isPlaying: Boolean = false,
     val currentPosition: Long = 0L,
@@ -51,6 +53,10 @@ class PlayerViewModel @Inject constructor(
 
     private val contentId: String = savedStateHandle.get<String>("contentId") ?: ""
     private val episodeId: String? = savedStateHandle.get<String>("episodeId")
+
+    /** When playing an episode, progress is keyed by episodeId not contentId (series id). */
+    private val progressId: String get() = episodeId ?: contentId
+    private val isEpisode: Boolean get() = episodeId != null
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -79,10 +85,11 @@ class PlayerViewModel @Inject constructor(
                     _uiState.update { it.copy(movie = movie) }
 
                     // Fetch saved progress BEFORE loading streaming URL
+                    // Use episodeId as progress key when playing episode (per-episode tracking)
                     var savedPosition = 0L
                     val profileId = sessionManager.activeProfileId.firstOrNull()
                     if (profileId != null) {
-                        when (val progressResult = watchProgressRepository.getProgress(profileId, contentId)) {
+                        when (val progressResult = watchProgressRepository.getProgress(profileId, progressId)) {
                             is Result.Success -> {
                                 val progress = progressResult.data
                                 if (progress != null && !progress.isCompleted) {
@@ -104,6 +111,7 @@ class PlayerViewModel @Inject constructor(
                                 episode.streamingSources?.forEachIndexed { i, src ->
                                     Log.d("CineVaultPlayer", "  EpSource[$i]: quality=${src.quality}, url=${src.url.take(100)}")
                                 }
+                                _uiState.update { it.copy(currentEpisodeTitle = episode.title) }
                                 loadStreamingUrl(resumePosition = savedPosition, episodeSources = episode.streamingSources)
                             }
                             is Result.Error -> {
@@ -126,14 +134,7 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Convert Google Drive share/view URLs to direct download URLs that ExoPlayer can stream.
-     * Uses drive.usercontent.google.com with confirm=t to bypass virus scan interstitial.
-     */
-    private fun toDirectUrl(url: String): String {
-        val fileId = extractDriveFileId(url) ?: return url
-        return "https://drive.usercontent.google.com/download?id=$fileId&export=download&confirm=t"
-    }
+    // ── Google Drive 3-Layer Streaming System ──────────────────────────────────
 
     private fun extractDriveFileId(url: String): String? {
         // /file/d/FILE_ID/
@@ -148,23 +149,79 @@ class PlayerViewModel @Inject constructor(
         Regex("drive\\.google\\.com/uc\\?.*id=([a-zA-Z0-9_-]+)").find(url)?.let {
             return it.groupValues[1]
         }
+        // /uc?export=download&id=FILE_ID (another variant)
+        Regex("[?&]id=([a-zA-Z0-9_-]+)").find(url)?.let {
+            if (url.contains("drive.google.com") || url.contains("docs.google.com")) {
+                return it.groupValues[1]
+            }
+        }
         return null
+    }
+
+    /**
+     * 3-layer fallback URL set for a Google Drive file ID.
+     *   Layer 1 — drive.usercontent.google.com download (primary, best redirect handling)
+     *   Layer 2 — docs.google.com uc endpoint (classic fallback)
+     *   Layer 3 — drive.google.com uc endpoint (last resort)
+     */
+    private fun driveStreamingLayers(fileId: String): List<String> = listOf(
+        "https://drive.usercontent.google.com/download?id=$fileId&export=download&confirm=t",
+        "https://docs.google.com/uc?export=download&id=$fileId&confirm=t",
+        "https://drive.google.com/uc?export=download&id=$fileId&confirm=t",
+    )
+
+    /**
+     * Convert any URL (Drive or direct) to a (primaryUrl, fallbackUrls) pair.
+     * For Google Drive URLs, all 3 layers are returned.
+     * For non-Drive URLs, returned as-is with an empty fallback list.
+     */
+    private fun buildStreamWithFallbacks(rawUrl: String): Pair<String, List<String>> {
+        val fileId = extractDriveFileId(rawUrl)
+        return if (fileId != null) {
+            val layers = driveStreamingLayers(fileId)
+            Pair(layers.first(), layers.drop(1))
+        } else {
+            Pair(rawUrl, emptyList())
+        }
+    }
+
+    /**
+     * Called by PlayerScreen when ExoPlayer reports a playback error.
+     * If fallback URLs remain, switches to the next one automatically (silent retry).
+     * If no more fallbacks, surfaces the error to the UI.
+     */
+    fun onPlaybackError(errorMessage: String) {
+        val fallbacks = _uiState.value.fallbackUrls
+        if (fallbacks.isNotEmpty()) {
+            val next = fallbacks.first()
+            val remaining = fallbacks.drop(1)
+            Log.d("CineVaultPlayer", "Playback error — switching to fallback URL (${remaining.size} remaining): ${next.take(100)}")
+            _uiState.update { it.copy(
+                streamingUrl = next,
+                fallbackUrls = remaining,
+                error = null,
+            ) }
+        } else {
+            Log.e("CineVaultPlayer", "All streaming layers exhausted: $errorMessage")
+            _uiState.update { it.copy(error = errorMessage) }
+        }
     }
 
     private fun loadStreamingUrl(resumePosition: Long = -1L, episodeSources: List<StreamingSourceDto>? = null) {
         viewModelScope.launch {
             val movie = _uiState.value.movie
 
-            // If episode sources are provided, use them directly
+            // If episode sources are provided, use them directly (with 3-layer Drive fallback)
             if (!episodeSources.isNullOrEmpty()) {
                 val source = episodeSources.firstOrNull()
                 val rawUrl = source?.url ?: ""
-                val streamUrl = toDirectUrl(rawUrl)
-                Log.d("CineVaultPlayer", "Using episode source URL: ${streamUrl.take(150)}")
+                val (streamUrl, fallbacks) = buildStreamWithFallbacks(rawUrl)
+                Log.d("CineVaultPlayer", "Using episode source URL: ${streamUrl.take(150)}, fallbacks: ${fallbacks.size}")
                 if (streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
                     _uiState.update { it.copy(
                         isLoading = false,
                         streamingUrl = streamUrl,
+                        fallbackUrls = fallbacks,
                         availableQualities = listOf(source?.quality ?: "Original"),
                         isAdaptive = false,
                         selectedQuality = source?.quality ?: "Original",
@@ -211,12 +268,16 @@ class PlayerViewModel @Inject constructor(
                     ?: sources.minByOrNull { it.priority ?: Int.MAX_VALUE }
             }
 
-            val streamUrl = source?.url ?: ""
+            // Apply 3-layer Drive URL conversion for ALL content types (movies, series, anime, etc.)
+            val rawUrl = source?.url ?: ""
+            val (streamUrl, fallbacks) = buildStreamWithFallbacks(rawUrl)
+            Log.d("CineVaultPlayer", "Movie/content stream: ${streamUrl.take(100)}, ${fallbacks.size} fallback(s)")
 
             if (streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
                 _uiState.update { it.copy(
                     isLoading = false,
                     streamingUrl = streamUrl,
+                    fallbackUrls = fallbacks,
                     availableQualities = qualities,
                     isAdaptive = hasMultipleSources,
                     selectedQuality = if (!hasMultipleSources) (sources.firstOrNull()?.quality ?: "Original") else it.selectedQuality,
@@ -271,12 +332,15 @@ class PlayerViewModel @Inject constructor(
                 }
                 Log.d("CineVaultPlayer", "Timer saving progress: ${state.currentPosition}/${state.totalDuration} profileId=$profileId")
                 watchProgressRepository.updateProgress(
-                    contentId = contentId,
+                    contentId = progressId,
                     profileId = profileId,
                     position = state.currentPosition,
                     duration = state.totalDuration,
                     contentTitle = state.movie?.title,
                     thumbnailUrl = state.movie?.posterUrl,
+                    contentType = if (isEpisode) "episode" else "movie",
+                    seriesId = if (isEpisode) contentId else null,
+                    episodeTitle = state.currentEpisodeTitle,
                 )
                 delay(15_000)
             }
@@ -298,12 +362,15 @@ class PlayerViewModel @Inject constructor(
                 }
                 Log.d("CineVaultPlayer", "Explicit save: $position/$duration title=${state.movie?.title} profileId=$profileId")
                 watchProgressRepository.updateProgress(
-                    contentId = contentId,
+                    contentId = progressId,
                     profileId = profileId,
                     position = position,
                     duration = duration,
                     contentTitle = state.movie?.title,
                     thumbnailUrl = state.movie?.posterUrl,
+                    contentType = if (isEpisode) "episode" else "movie",
+                    seriesId = if (isEpisode) contentId else null,
+                    episodeTitle = state.currentEpisodeTitle,
                 )
                 Log.d("CineVaultPlayer", "Explicit save COMPLETED")
             }
@@ -322,12 +389,15 @@ class PlayerViewModel @Inject constructor(
                 if (state.totalDuration > 0 && state.currentPosition > 0) {
                     Log.d("CineVaultPlayer", "saveProgressNow: ${state.currentPosition}/${state.totalDuration} profileId=$profileId")
                     watchProgressRepository.updateProgress(
-                        contentId = contentId,
+                        contentId = progressId,
                         profileId = profileId,
                         position = state.currentPosition,
                         duration = state.totalDuration,
                         contentTitle = state.movie?.title,
                         thumbnailUrl = state.movie?.posterUrl,
+                        contentType = if (isEpisode) "episode" else "movie",
+                        seriesId = if (isEpisode) contentId else null,
+                        episodeTitle = state.currentEpisodeTitle,
                     )
                     Log.d("CineVaultPlayer", "saveProgressNow COMPLETED")
                 }
@@ -381,12 +451,15 @@ class PlayerViewModel @Inject constructor(
                     }
                     Log.d("CineVaultPlayer", "onCleared final save: ${state.currentPosition}/${state.totalDuration} profileId=$profileId")
                     watchProgressRepository.updateProgress(
-                        contentId = contentId,
+                        contentId = progressId,
                         profileId = profileId,
                         position = state.currentPosition,
                         duration = state.totalDuration,
                         contentTitle = state.movie?.title,
                         thumbnailUrl = state.movie?.posterUrl,
+                        contentType = if (isEpisode) "episode" else "movie",
+                        seriesId = if (isEpisode) contentId else null,
+                        episodeTitle = state.currentEpisodeTitle,
                     )
                     Log.d("CineVaultPlayer", "onCleared final save COMPLETED")
                 }

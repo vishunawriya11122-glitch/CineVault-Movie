@@ -143,6 +143,12 @@ interface CineVaultApi {
         @Query("limit") limit: Int = 20,
     ): Response<WatchHistoryResponse>
 
+    @GET("watch-progress/latest-for-series/{seriesId}")
+    suspend fun getLatestEpisodeForSeries(
+        @Header("x-profile-id") profileId: String,
+        @Path("seriesId") seriesId: String,
+    ): Response<WatchProgressDto?>
+
     @GET("watch-progress/{contentId}")
     suspend fun getProgress(
         @Header("x-profile-id") profileId: String,

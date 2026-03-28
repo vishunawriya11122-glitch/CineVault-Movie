@@ -168,6 +168,11 @@ fun CineVaultNavHost(navController: NavHostController = rememberNavController())
                     onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) },
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                     onMovieClick = { movieId -> navController.navigate(Screen.MovieDetail.createRoute(movieId)) },
+                    onHistoryItemClick = { contentId, episodeId ->
+                        // Push DetailPage then Player: Back from Player → Trailer Page
+                        navController.navigate(Screen.MovieDetail.createRoute(contentId))
+                        navController.navigate(Screen.Player.createRoute(contentId, episodeId))
+                    },
                 )
             }
 
@@ -198,7 +203,11 @@ fun CineVaultNavHost(navController: NavHostController = rememberNavController())
             composable(Screen.WatchHistory.route) {
                 WatchHistoryScreen(
                     onBack = { navController.popBackStack() },
-                    onMovieClick = { movieId -> navController.navigate(Screen.MovieDetail.createRoute(movieId)) },
+                    onHistoryItemClick = { contentId, episodeId ->
+                        // Push DetailPage then Player: Back from Player → Trailer Page
+                        navController.navigate(Screen.MovieDetail.createRoute(contentId))
+                        navController.navigate(Screen.Player.createRoute(contentId, episodeId))
+                    },
                 )
             }
 

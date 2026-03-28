@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState, useMemo } from 'react';
-import { Plus, Trash2, GripVertical, X, Edit2, Search, MinusCircle } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Plus, Trash2, GripVertical, X, Edit2, Search, MinusCircle, Zap } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -37,14 +37,17 @@ interface HomeSection {
   type: 'standard' | 'large_card' | 'mid_banner' | 'trending';
   displayOrder: number;
   isVisible: boolean;
+  isSystemManaged?: boolean;
   cardSize: 'small' | 'medium' | 'large';
   showViewMore: boolean;
   viewMoreText: string;
   showTrendingNumbers: boolean;
   bannerImageUrl?: string;
   contentIds: string[];
+  contentTypes?: string[];
   maxItems: number;
   section?: string;
+  slug?: string;
 }
 
 interface MovieItem {
@@ -75,6 +78,8 @@ function SortableSectionRow({
     id: section._id,
   });
 
+  const isSystem = !!section.isSystemManaged;
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -87,7 +92,8 @@ function SortableSectionRow({
       ref={setNodeRef}
       style={style}
       className={clsx(
-        'bg-surface border border-border rounded-xl p-4 flex items-center gap-4',
+        'bg-surface border rounded-xl p-4 flex items-center gap-4',
+        isSystem ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border',
         isDragging && 'shadow-xl ring-2 ring-gold/30'
       )}
     >
@@ -102,16 +108,31 @@ function SortableSectionRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <h3 className="font-medium">{section.title}</h3>
-          <span className="text-xs bg-gold/20 text-gold px-2 py-0.5 rounded">
-            {section.type === 'standard' && 'Standard'}
-            {section.type === 'large_card' && 'Large Cards'}
-            {section.type === 'trending' && 'Trending'}
-            {section.type === 'mid_banner' && 'Featured Banner'}
-          </span>
+          {isSystem ? (
+            <span className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-medium">
+              <Zap size={10} /> Auto
+            </span>
+          ) : (
+            <span className="text-xs bg-gold/20 text-gold px-2 py-0.5 rounded">
+              {section.type === 'standard' && 'Standard'}
+              {section.type === 'large_card' && 'Large Cards'}
+              {section.type === 'trending' && 'Trending'}
+              {section.type === 'mid_banner' && 'Featured Banner'}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-text-secondary mt-0.5">
-          {section.contentIds?.length || 0} items • Order: {section.displayOrder}
-        </p>
+        {isSystem ? (
+          <p className="text-xs text-emerald-400/80 mt-0.5">
+            Auto-populated • newest first • up to {section.maxItems} items
+            {section.contentTypes && section.contentTypes.length > 0
+              ? ` • ${section.contentTypes.join(', ')}`
+              : ' • all content types'}
+          </p>
+        ) : (
+          <p className="text-xs text-text-secondary mt-0.5">
+            {section.contentIds?.length || 0} items • Order: {section.displayOrder}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
@@ -137,29 +158,45 @@ function SortableSectionRow({
           </div>
         </label>
 
-        <button
-          onClick={onManageContent}
-          className="p-2 rounded-lg hover:bg-gold/10 text-text-secondary hover:text-gold transition-colors"
-          title="Manage Content"
-        >
-          <Plus size={16} />
-        </button>
+        {/* Manage Content — hidden for system sections (auto-managed) */}
+        {!isSystem && (
+          <button
+            onClick={onManageContent}
+            className="p-2 rounded-lg hover:bg-gold/10 text-text-secondary hover:text-gold transition-colors"
+            title="Manage Content"
+          >
+            <Plus size={16} />
+          </button>
+        )}
 
-        <button
-          onClick={onEdit}
-          className="p-2 rounded-lg hover:bg-gold/10 text-text-secondary hover:text-gold transition-colors"
-          title="Edit Section"
-        >
-          <Edit2 size={16} />
-        </button>
+        {/* Edit — hidden for system sections */}
+        {!isSystem && (
+          <button
+            onClick={onEdit}
+            className="p-2 rounded-lg hover:bg-gold/10 text-text-secondary hover:text-gold transition-colors"
+            title="Edit Section"
+          >
+            <Edit2 size={16} />
+          </button>
+        )}
 
-        <button
-          onClick={onDelete}
-          className="p-2 rounded-lg hover:bg-error/10 text-text-secondary hover:text-error transition-colors"
-          title="Delete Section"
-        >
-          <Trash2 size={16} />
-        </button>
+        {/* Delete — disabled for system sections */}
+        {isSystem ? (
+          <div
+            className="p-2 rounded-lg text-text-muted cursor-not-allowed"
+            title="System section — cannot be deleted"
+          >
+            <Trash2 size={16} className="opacity-30" />
+          </div>
+        ) : (
+          <button
+            onClick={onDelete}
+            className="p-2 rounded-lg hover:bg-error/10 text-text-secondary hover:text-error transition-colors"
+            title="Delete Section"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -504,6 +541,25 @@ export default function HomeSectionsPage() {
 
   const managingSection = sections.find((s) => s._id === managingSectionId);
 
+  // Auto-seed default "Recently Added" sections on first load (idempotent — safe to call repeatedly)
+  const seedMutation = useMutation({
+    mutationFn: () => api.post('/home/sections/seed-defaults'),
+    onSuccess: (res) => {
+      if (res.data?.created > 0) {
+        queryClient.invalidateQueries({ queryKey: ['homeSections'] });
+        toast.success(`${res.data.created} default "Recently Added" section(s) initialized`);
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Failed to initialize default sections');
+    },
+  });
+
+  useEffect(() => {
+    seedMutation.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -735,19 +791,32 @@ export default function HomeSectionsPage() {
         </div>
       ) : sections.length === 0 ? (
         <div className="text-center py-20 text-text-secondary border border-border border-dashed rounded-xl">
+          <Zap size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-lg font-medium">No sections for {SECTIONS.find((s) => s.key === activeSection)?.label}</p>
-          <p className="text-sm mt-1">Add a section to display content in this tab</p>
-          <button
-            onClick={() => {
-              setEditingId(null);
-              resetForm();
-              setShowForm(true);
-            }}
-            className="mt-4 bg-gold hover:bg-gold-light text-background px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
-          >
-            <Plus size={16} className="inline mr-1" />
-            Add First Section
-          </button>
+          <p className="text-sm mt-1 max-w-md mx-auto">
+            Default "Recently Added" sections are being initialized. Refresh if they don't appear.
+          </p>
+          <div className="flex items-center justify-center gap-3 mt-4">
+            <button
+              onClick={() => seedMutation.mutate()}
+              disabled={seedMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              <Zap size={14} className="inline mr-1" />
+              {seedMutation.isPending ? 'Initializing...' : 'Initialize Defaults'}
+            </button>
+            <button
+              onClick={() => {
+                setEditingId(null);
+                resetForm();
+                setShowForm(true);
+              }}
+              className="bg-gold hover:bg-gold-light text-background px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+            >
+              <Plus size={14} className="inline mr-1" />
+              Add Section
+            </button>
+          </div>
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -779,8 +848,9 @@ export default function HomeSectionsPage() {
           <p className="font-semibold mb-2">💡 Tips</p>
           <ul className="space-y-1 list-disc list-inside">
             <li>Drag the ⠿ handle to reorder sections — order syncs to the app</li>
-            <li>Click + to add or remove content from a section</li>
-            <li>Toggle visibility to hide sections without deleting them</li>
+            <li>Sections marked <span className="text-emerald-400 font-semibold">Auto</span> are system-managed: they auto-populate with the 20 newest items of each type</li>
+            <li>Click + to add or remove content from manual (non-auto) sections</li>
+            <li>Toggle the switch to hide a section without deleting it</li>
           </ul>
         </div>
       )}

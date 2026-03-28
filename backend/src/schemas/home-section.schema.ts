@@ -76,6 +76,9 @@ export class HomeSection {
   @Prop([String])
   tags: string[]; // For categorizing sections
 
+  @Prop([String])
+  contentTypes: string[]; // For system sections with multiple content-type filters (e.g. ['web_series','tv_show'])
+
   @Prop({ enum: TabSection, default: TabSection.HOME })
   section: TabSection;
 }

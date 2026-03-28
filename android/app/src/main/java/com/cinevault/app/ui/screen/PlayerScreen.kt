@@ -37,7 +37,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.cinevault.app.ui.theme.CineVaultTheme
@@ -65,9 +67,15 @@ fun PlayerScreen(
     // Track selector for adaptive quality
     val trackSelector = remember { DefaultTrackSelector(context) }
 
-    // ExoPlayer with track selector
+    // ExoPlayer with custom HTTP factory (cross-protocol redirects for Google Drive etc.)
     val exoPlayer = remember {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
         ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
             .setTrackSelector(trackSelector)
             .build()
             .apply { playWhenReady = true }
@@ -84,7 +92,8 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("CineVaultPlayer", "Playback error: ${error.errorCodeName} - ${error.message}", error)
-                playerError = "Playback error: ${error.errorCodeName}\n${error.message ?: "Unknown error"}"
+                // Delegate to ViewModel — it will try the next fallback URL or surface the error
+                viewModel.onPlaybackError("Playback error: ${error.errorCodeName}\n${error.message ?: "Unknown error"}")
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -158,11 +167,13 @@ fun PlayerScreen(
         }
     }
 
-    // Update media when URL changes
+    // Update media when URL changes (also re-fires when onPlaybackError sets next fallback URL)
     LaunchedEffect(uiState.streamingUrl) {
         uiState.streamingUrl?.let { url ->
             Log.d("CineVaultPlayer", "Loading URL: $url")
             playerError = null
+            // Stop + reset first — ensures clean state when retrying after an error
+            exoPlayer.stop()
             val resumePos = uiState.currentPosition
             exoPlayer.setMediaItem(MediaItem.fromUri(url))
             exoPlayer.prepare()

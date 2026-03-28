@@ -32,7 +32,8 @@ import com.cinevault.app.ui.viewmodel.ProfileViewModel
 @Composable
 fun WatchHistoryScreen(
     onBack: () -> Unit,
-    onMovieClick: (String) -> Unit,
+    /** Navigate to content from history. For movies: episodeId = null. For episodes: episodeId = the episode's id, contentId = seriesId. */
+    onHistoryItemClick: (contentId: String, episodeId: String?) -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -121,7 +122,13 @@ fun WatchHistoryScreen(
                 items(uiState.watchHistory) { progress ->
                     WatchHistoryItem(
                         progress = progress,
-                        onClick = { onMovieClick(progress.contentId) }
+                        onClick = {
+                            if (progress.contentType == "episode" && !progress.seriesId.isNullOrBlank()) {
+                                onHistoryItemClick(progress.seriesId, progress.contentId)
+                            } else {
+                                onHistoryItemClick(progress.contentId, null)
+                            }
+                        }
                     )
                 }
                 item { Spacer(modifier = Modifier.height(20.dp)) }

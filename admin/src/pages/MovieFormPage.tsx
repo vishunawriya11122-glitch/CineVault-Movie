@@ -155,6 +155,10 @@ export default function MovieFormPage() {
       const minutes = totalMinutes % 60;
       setDurationHours(hours);
       setDurationMinutes(minutes);
+      // If editing an anime from the series manager, mark it as anime_series format
+      if (movie.contentType === 'anime' && section === 'series') {
+        setAnimeFormat('anime_series');
+      }
       setForm({
         title: movie.title,
         alternateTitle: movie.alternateTitle ?? '',
@@ -197,8 +201,16 @@ export default function MovieFormPage() {
       isEdit ? api.patch(`/movies/${id}`, data) : api.post('/movies', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['movies'] });
+      queryClient.invalidateQueries({ queryKey: ['series-list'] });
+      queryClient.invalidateQueries({ queryKey: ['anime'] });
       toast.success(isEdit ? 'Content updated' : 'Content created');
-      navigate('/movies');
+      // Navigate to the correct section page (not always /movies)
+      const successPath =
+        isSeries ? '/series'
+        : isAnimeSection
+          ? (animeFormat === 'anime_series' ? '/series' : '/anime')
+          : '/movies';
+      navigate(successPath);
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || 'Failed to save';
@@ -305,8 +317,8 @@ export default function MovieFormPage() {
             </div>
           </div>
 
-          {/* Anime format picker — visible only in Anime section when creating new */}
-          {isAnimeSection && !isEdit && (
+          {/* Anime format picker — visible in Anime section (create + edit) */}
+          {isAnimeSection && (
             <div>
               <label className="block text-sm text-text-secondary mb-2">Content Format *</label>
               <div className="flex gap-2">
@@ -326,7 +338,7 @@ export default function MovieFormPage() {
                 ))}
               </div>
               {animeFormat === 'anime_series' && (
-                <p className="text-xs text-text-muted mt-1">Episodes &amp; duration are managed in the Series Manager</p>
+                <p className="text-xs text-text-muted mt-1">Episodes &amp; seasons are managed in the Series Manager after saving</p>
               )}
             </div>
           )}

@@ -238,7 +238,8 @@ data class WatchProgressDto(
     val lastWatchedAt: String?,
     val episodeTitle: String?,
     val contentTitle: String?,
-    val thumbnailUrl: String?
+    val thumbnailUrl: String?,
+    val seriesId: String? = null,  // populated when contentType == "episode"
 ) {
     val duration: Int get() = totalDuration
     val position: Int get() = currentTime

@@ -4,6 +4,35 @@ import { Model, Types } from 'mongoose';
 import { Season, SeasonDocument, Episode, EpisodeDocument } from '../../schemas/series.schema';
 
 /**
+ * Derive a Google Drive thumbnail URL from any Drive sharing/streaming URL.
+ * Returns null if the URL is not a Drive URL.
+ */
+function getDriveThumbnailUrl(url: string): string | null {
+  const patterns = [
+    /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/,
+    /drive\.usercontent\.google\.com\/.*id=([a-zA-Z0-9_-]+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) {
+      return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
+    }
+  }
+  return null;
+}
+
+/** Auto-set thumbnailUrl from the first streaming source Drive URL if not already set. */
+function autoSetThumbnail<T extends { thumbnailUrl?: string; streamingSources?: { url: string }[] }>(data: T): T {
+  if (!data.thumbnailUrl && data.streamingSources?.length) {
+    const thumb = getDriveThumbnailUrl(data.streamingSources[0].url);
+    if (thumb) data.thumbnailUrl = thumb;
+  }
+  return data;
+}
+
+/**
  * Convert any Google Drive link to a direct-download URL that video players can stream.
  * Handles: /file/d/ID/view, /open?id=ID, /uc?id=ID, and already-converted URLs.
  */
@@ -99,6 +128,8 @@ export class SeriesService {
     }
     // Auto-convert Google Drive URLs to direct download format
     convertStreamingSources(data);
+    // Auto-derive thumbnail from Drive source if not provided
+    autoSetThumbnail(data);
     const episode = await this.episodeModel.create(data);
     await this.seasonModel.findByIdAndUpdate(data.seasonId, { $inc: { episodeCount: 1 } });
     return episode;
@@ -112,7 +143,7 @@ export class SeriesService {
     let nextNumber = (lastEpisode?.episodeNumber ?? 0) + 1;
 
     const docs = episodes.map((ep) => ({
-      ...convertStreamingSources(ep),
+      ...convertStreamingSources(autoSetThumbnail(ep)),
       seasonId: new Types.ObjectId(seasonId),
       episodeNumber: ep.episodeNumber ?? nextNumber++,
     }));
@@ -125,6 +156,8 @@ export class SeriesService {
   async updateEpisode(id: string, data: Partial<Episode>): Promise<EpisodeDocument> {
     // Auto-convert Google Drive URLs to direct download format
     convertStreamingSources(data);
+    // Auto-derive thumbnail if streaming sources updated and no thumbnail provided
+    autoSetThumbnail(data);
     const episode = await this.episodeModel.findByIdAndUpdate(id, data, { new: true });
     if (!episode) throw new NotFoundException('Episode not found');
     return episode;
@@ -135,5 +168,22 @@ export class SeriesService {
     if (episode) {
       await this.seasonModel.findByIdAndUpdate(episode.seasonId, { $inc: { episodeCount: -1 } });
     }
+  }
+
+  /** Retroactively generate Drive thumbnails for all episodes in a season that have no thumbnailUrl. */
+  async generateThumbnailsForSeason(seasonId: string): Promise<{ updated: number; skipped: number }> {
+    const episodes = await this.getEpisodes(seasonId);
+    let updated = 0;
+    let skipped = 0;
+    for (const ep of episodes) {
+      if (ep.thumbnailUrl) { skipped++; continue; }
+      const sources = ep.streamingSources as { url: string }[] | undefined;
+      if (!sources?.length) { skipped++; continue; }
+      const thumb = getDriveThumbnailUrl(sources[0].url);
+      if (!thumb) { skipped++; continue; }
+      await this.episodeModel.findByIdAndUpdate(ep._id, { thumbnailUrl: thumb });
+      updated++;
+    }
+    return { updated, skipped };
   }
 }

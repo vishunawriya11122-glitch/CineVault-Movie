@@ -50,6 +50,16 @@ export class WatchProgressController {
     return this.watchProgressService.getWatchHistory(userId, profileId, page, limit);
   }
 
+  @Get('latest-for-series/:seriesId')
+  @ApiOperation({ summary: 'Get latest episode progress for a series' })
+  async getLatestEpisodeForSeries(
+    @CurrentUser('userId') userId: string,
+    @Headers('x-profile-id') profileId: string,
+    @Param('seriesId') seriesId: string,
+  ) {
+    return this.watchProgressService.getLatestEpisodeForSeries(userId, profileId, seriesId);
+  }
+
   @Get(':contentId')
   @ApiOperation({ summary: 'Get progress for specific content' })
   async getProgress(
