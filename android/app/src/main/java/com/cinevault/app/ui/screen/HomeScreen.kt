@@ -383,7 +383,7 @@ fun TopNavTabs(
             ) {
                 Text(
                     text = title,
-                    fontSize = 17.sp,
+                    fontSize = 22.sp,
                     fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                     color = if (isSelected) CineVaultTheme.colors.textPrimary.copy(alpha = animatedAlpha)
                     else CineVaultTheme.colors.textSecondary.copy(alpha = animatedAlpha),
