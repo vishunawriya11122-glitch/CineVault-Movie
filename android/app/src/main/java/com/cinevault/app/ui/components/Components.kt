@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -22,6 +23,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -34,6 +38,7 @@ import coil.compose.AsyncImage
 import com.cinevault.app.data.model.BannerDto
 import com.cinevault.app.data.model.HomeSectionDto
 import com.cinevault.app.data.model.MovieDto
+import com.cinevault.app.data.model.WatchProgressDto
 import com.cinevault.app.ui.theme.CineVaultTheme
 
 @Composable
@@ -692,47 +697,244 @@ fun TrendingMovieCard(
     rank: Int,
     onClick: (String) -> Unit,
     modifier: Modifier = Modifier,
-    cardWidth: Dp = 110.dp,
 ) {
-    Box(
+    Column(
         modifier = modifier
-            .width(cardWidth)
-            .aspectRatio(2f / 3f)
-            .clip(RoundedCornerShape(8.dp))
-            .background(CineVaultTheme.colors.surface)
+            .width(150.dp)
             .clickable { onClick(movie.id) }
     ) {
-        AsyncImage(
-            model = movie.posterUrl,
-            contentDescription = movie.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        
-        // Gradient overlay
+        // Netflix-style: Large number on left, poster overlapping on right
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, CineVaultTheme.colors.background.copy(alpha = 0.7f)),
-                        startY = 50f
-                    )
+                .fillMaxWidth()
+                .height(195.dp)
+        ) {
+            // Large ranking number — outline stroke (behind poster)
+            Text(
+                text = rank.toString(),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = (-4).dp, y = 12.dp),
+                style = TextStyle(
+                    fontSize = 110.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-6).sp,
+                    drawStyle = Stroke(
+                        width = 6f,
+                        join = StrokeJoin.Round,
+                    ),
+                    color = CineVaultTheme.colors.accentGold,
                 )
-        )
-        
-        // Large ranking number
-        Text(
-            rank.toString(),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(8.dp),
-            style = TextStyle(
-                fontSize = 48.sp,
-                fontWeight = FontWeight.Bold,
-                color = CineVaultTheme.colors.accentGold
             )
+
+            // Large ranking number — dark fill (behind poster)
+            Text(
+                text = rank.toString(),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = (-4).dp, y = 12.dp),
+                style = TextStyle(
+                    fontSize = 110.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-6).sp,
+                    color = CineVaultTheme.colors.background,
+                    shadow = Shadow(
+                        color = CineVaultTheme.colors.accentGold.copy(alpha = 0.3f),
+                        offset = Offset(2f, 2f),
+                        blurRadius = 8f,
+                    ),
+                )
+            )
+
+            // Poster image (right side, overlapping number)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .width(if (rank < 10) 115.dp else 105.dp)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(CineVaultTheme.colors.surface)
+            ) {
+                AsyncImage(
+                    model = movie.posterUrl,
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                // Language badge — top-right
+                val langLabel = movie.languageLabel
+                if (!langLabel.isNullOrBlank()) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = CineVaultTheme.colors.accentGold.copy(alpha = 0.85f),
+                    ) {
+                        Text(
+                            langLabel,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                            fontSize = 7.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CineVaultTheme.colors.background,
+                            letterSpacing = 0.3.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Title
+        Text(
+            movie.title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = CineVaultTheme.colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
+
+        // Watching count
+        val watchCount = movie.viewCount ?: 0
+        if (watchCount > 0) {
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE53935))
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "${formatWatchCount(watchCount)} Watching Now",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = CineVaultTheme.colors.textSecondary,
+                )
+            }
+        }
+    }
+}
+
+private fun formatWatchCount(count: Int): String {
+    return when {
+        count >= 1000 -> String.format("%.1fk", count / 1000.0)
+        else -> count.toString()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONTINUE WATCHING CARD
+// ═══════════════════════════════════════════════════════════════
+
+@Composable
+fun ContinueWatchingCard(
+    item: WatchProgressDto,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .width(170.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(CineVaultTheme.colors.surface)
+        ) {
+            AsyncImage(
+                model = item.thumbnailUrl,
+                contentDescription = item.contentTitle,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+
+            // Dark overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.3f))
+            )
+
+            // Play icon overlay
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(38.dp),
+                shape = CircleShape,
+                color = CineVaultTheme.colors.accentGold.copy(alpha = 0.9f),
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Continue",
+                    modifier = Modifier
+                        .padding(6.dp),
+                    tint = CineVaultTheme.colors.background,
+                )
+            }
+
+            // X remove button top-right
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(24.dp),
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.6f),
+                onClick = onRemove,
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove",
+                    modifier = Modifier.padding(4.dp),
+                    tint = Color.White,
+                )
+            }
+
+            // Progress bar at bottom of thumbnail
+            val progress = if (item.totalDuration > 0) item.currentTime.toFloat() / item.totalDuration else 0f
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .align(Alignment.BottomCenter),
+                color = CineVaultTheme.colors.accentGold,
+                trackColor = Color.White.copy(alpha = 0.2f),
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            item.contentTitle ?: "Unknown",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = CineVaultTheme.colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        // Episode info if available
+        if (!item.episodeTitle.isNullOrBlank()) {
+            Text(
+                item.episodeTitle!!,
+                fontSize = 10.sp,
+                color = CineVaultTheme.colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

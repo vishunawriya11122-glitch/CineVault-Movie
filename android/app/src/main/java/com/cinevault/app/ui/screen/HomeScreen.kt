@@ -1,5 +1,6 @@
 package com.cinevault.app.ui.screen
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.*
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -38,6 +40,8 @@ import coil.compose.AsyncImage
 import com.cinevault.app.data.model.BannerDto
 import com.cinevault.app.data.model.HomeSectionDto
 import com.cinevault.app.data.model.MovieDto
+import com.cinevault.app.ui.components.ContinueWatchingCard
+import com.cinevault.app.ui.components.TrendingMovieCard
 import com.cinevault.app.ui.theme.CineVaultTheme
 import com.cinevault.app.ui.viewmodel.HomeViewModel
 import com.google.accompanist.swiperefresh.SwipeRefresh
@@ -120,6 +124,54 @@ fun HomeScreen(
                         bannerCount = uiState.tabBanners.size,
                         currentIndex = currentBannerIndex.coerceIn(0, (uiState.tabBanners.size - 1).coerceAtLeast(0)),
                     )
+                }
+
+                // ── Continue Watching Section ──
+                if (uiState.continueWatching.isNotEmpty()) {
+                    item {
+                        PremiumSectionHeader(
+                            title = "Continue Watching",
+                            onArrowClick = null,
+                        )
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(uiState.continueWatching) { item ->
+                                ContinueWatchingCard(
+                                    item = item,
+                                    onClick = { onPlayClick(item.contentId) },
+                                    onRemove = { viewModel.removeContinueWatching(item) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Most Watching / Trending Now Section ──
+                if (uiState.trendingMovies.isNotEmpty()) {
+                    item {
+                        PremiumSectionHeader(
+                            title = "Most Watching \u2022 Trending Now",
+                            onArrowClick = null,
+                        )
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            itemsIndexed(uiState.trendingMovies.take(10)) { index, movie ->
+                                TrendingMovieCard(
+                                    movie = movie,
+                                    rank = index + 1,
+                                    onClick = onMovieClick,
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // ── Content based on selected tab ──
@@ -218,6 +270,116 @@ fun HomeScreen(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("Retry", color = CineVaultTheme.colors.background)
+                }
+            }
+        }
+        // ── Floating Continue Watching Popup ──
+        val lastWatched = uiState.continueWatching.firstOrNull()
+        if (uiState.showContinuePopup && lastWatched != null) {
+            var popupVisible by remember { mutableStateOf(true) }
+
+            // Auto-hide after 5 seconds
+            LaunchedEffect(Unit) {
+                delay(5000)
+                popupVisible = false
+                viewModel.dismissContinuePopup()
+            }
+
+            AnimatedVisibility(
+                visible = popupVisible,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 90.dp),
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = CineVaultTheme.colors.surfaceElevated,
+                    shadowElevation = 12.dp,
+                    tonalElevation = 4.dp,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Thumbnail
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(CineVaultTheme.colors.surface)
+                        ) {
+                            AsyncImage(
+                                model = lastWatched.thumbnailUrl,
+                                contentDescription = lastWatched.contentTitle,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
+                        // Title
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Continue Watching",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = CineVaultTheme.colors.textSecondary,
+                            )
+                            Text(
+                                lastWatched.contentTitle ?: "Unknown",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CineVaultTheme.colors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        Spacer(Modifier.width(8.dp))
+
+                        // Continue button
+                        Button(
+                            onClick = { onPlayClick(lastWatched.contentId) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CineVaultTheme.colors.accentGold,
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                "Continue \u25B6",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CineVaultTheme.colors.background,
+                            )
+                        }
+
+                        Spacer(Modifier.width(4.dp))
+
+                        // X dismiss button
+                        IconButton(
+                            onClick = {
+                                popupVisible = false
+                                viewModel.dismissContinuePopup()
+                            },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = CineVaultTheme.colors.textSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

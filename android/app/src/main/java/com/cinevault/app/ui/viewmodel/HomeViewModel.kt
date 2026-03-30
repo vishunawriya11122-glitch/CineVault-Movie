@@ -7,6 +7,7 @@ import com.cinevault.app.data.local.SessionManager
 import com.cinevault.app.data.model.*
 import com.cinevault.app.data.remote.CineVaultApi
 import com.cinevault.app.data.repository.ContentRepository
+import com.cinevault.app.data.repository.WatchProgressRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.*
@@ -23,6 +24,10 @@ data class HomeUiState(
     val selectedTab: Int = 0, // 0=Home, 1=Shows, 2=Movies, 3=Anime
     val tabSections: List<HomeSectionDto> = emptyList(),
     val isTabLoading: Boolean = false,
+    val trendingMovies: List<MovieDto> = emptyList(),
+    val continueWatching: List<WatchProgressDto> = emptyList(),
+    val showContinuePopup: Boolean = false,
+    val continuePopupDismissed: Boolean = false,
 )
 
 @HiltViewModel
@@ -30,6 +35,7 @@ class HomeViewModel @Inject constructor(
     private val contentRepository: ContentRepository,
     private val sessionManager: SessionManager,
     private val api: CineVaultApi,
+    private val watchProgressRepository: WatchProgressRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -40,10 +46,6 @@ class HomeViewModel @Inject constructor(
         loadHome()
     }
 
-    /**
-     * On every app launch, check if activeProfileId is set.
-     * If not (legacy users who logged in before the fix), fetch/create one.
-     */
     private fun ensureActiveProfile() {
         viewModelScope.launch {
             val existing = sessionManager.activeProfileId.firstOrNull()
@@ -106,9 +108,11 @@ class HomeViewModel @Inject constructor(
 
             val bannersDeferred = async { contentRepository.getBanners(section) }
             val feedDeferred = async { contentRepository.getHomeFeed(section) }
+            val trendingDeferred = async { loadTrendingData() }
 
             val bannersResult = bannersDeferred.await()
             val feedResult = feedDeferred.await()
+            val trending = trendingDeferred.await()
 
             val banners = when (bannersResult) {
                 is Result.Success -> bannersResult.data
@@ -127,7 +131,62 @@ class HomeViewModel @Inject constructor(
                     isRefreshing = false,
                     tabBanners = banners,
                     tabSections = sections,
+                    trendingMovies = trending,
                     error = if (bothFailed) "Connection failed" else null,
+                )
+            }
+        }
+    }
+
+    private suspend fun loadTrendingData(): List<MovieDto> {
+        return try {
+            val response = api.getTrending(limit = 10)
+            if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+        } catch (e: Exception) {
+            Log.e("CineVaultHome", "Failed to load trending", e)
+            emptyList()
+        }
+    }
+
+    fun loadContinueWatching() {
+        viewModelScope.launch {
+            val profileId = sessionManager.activeProfileId.firstOrNull() ?: return@launch
+            val result = watchProgressRepository.getContinueWatching(profileId)
+            if (result is Result.Success) {
+                val items = result.data
+                _uiState.update {
+                    it.copy(
+                        continueWatching = items,
+                        showContinuePopup = items.isNotEmpty() && !it.continuePopupDismissed,
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissContinuePopup() {
+        _uiState.update { it.copy(showContinuePopup = false, continuePopupDismissed = true) }
+    }
+
+    fun removeContinueWatching(item: WatchProgressDto) {
+        viewModelScope.launch {
+            val profileId = sessionManager.activeProfileId.firstOrNull() ?: return@launch
+            // Mark as completed to remove from continue watching
+            watchProgressRepository.updateProgress(
+                contentId = item.contentId,
+                profileId = profileId,
+                position = item.totalDuration.toLong(),
+                duration = item.totalDuration.toLong(),
+                contentTitle = item.contentTitle,
+                thumbnailUrl = item.thumbnailUrl,
+                contentType = item.contentType,
+            )
+            // Remove from local list immediately
+            _uiState.update {
+                val updated = it.continueWatching.filter { cw -> cw.contentId != item.contentId }
+                it.copy(
+                    continueWatching = updated,
+                    showContinuePopup = if (it.showContinuePopup && updated.isEmpty()) false else it.showContinuePopup,
                 )
             }
         }
@@ -140,9 +199,11 @@ class HomeViewModel @Inject constructor(
             val section = tabSection(_uiState.value.selectedTab)
             val bannersDeferred = async { contentRepository.getBanners(section) }
             val feedDeferred = async { contentRepository.getHomeFeed(section) }
+            val trendingDeferred = async { loadTrendingData() }
 
             val bannersResult = bannersDeferred.await()
             val feedResult = feedDeferred.await()
+            val trending = trendingDeferred.await()
 
             val banners = when (bannersResult) {
                 is Result.Success -> bannersResult.data
@@ -153,8 +214,6 @@ class HomeViewModel @Inject constructor(
                 else -> emptyList()
             }
 
-            // Only show error when BOTH API calls actually failed (network error),
-            // not when they succeeded but returned empty data
             val bothFailed = bannersResult is Result.Error && feedResult is Result.Error
             val errorMsg = if (bothFailed) "Connection failed" else null
 
@@ -166,9 +225,13 @@ class HomeViewModel @Inject constructor(
                     tabBanners = banners,
                     homeSections = sections,
                     tabSections = sections,
+                    trendingMovies = trending,
                     error = errorMsg,
                 )
             }
+
+            // Load continue watching after main content
+            loadContinueWatching()
         }
     }
 
@@ -176,5 +239,6 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(isRefreshing = true) }
         val section = tabSection(_uiState.value.selectedTab)
         loadTabData(section)
+        loadContinueWatching()
     }
 }
