@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+*.log
+coverage
+.git
+.gitignore
+README.md
+*.md
+public/hls
+extract*.js
+gcp-service-account.json
+.vercel
+vercel.json
+fly.toml
+render.yaml
