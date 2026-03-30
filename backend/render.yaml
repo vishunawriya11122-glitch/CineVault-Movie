@@ -1,16 +1,23 @@
 services:
   - type: web
-    name: cinevault-api
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    region: singapore
+    name: CineVault-Movie
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install --ignore-scripts --no-audit --no-fund && npm run build
+    startCommand: node dist/main
+    region: oregon
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: "3000"
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "true"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=400"
       - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET
