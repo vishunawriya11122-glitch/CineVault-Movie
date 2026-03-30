@@ -131,17 +131,93 @@ export class AuthService {
   async forgotPassword(email: string): Promise<{ message: string }> {
     const user = await this.userModel.findOne({ email: email.toLowerCase() });
     if (!user) {
-      // Return success even if user not found to prevent email enumeration
-      return { message: 'If an account exists with that email, a reset link has been sent' };
+      return { message: 'If an account exists with that email, an OTP has been sent' };
     }
 
-    const resetToken = uuidv4();
-    user.passwordResetToken = await bcrypt.hash(resetToken, 10);
-    user.passwordResetExpires = new Date(Date.now() + 3600000); // 1 hour
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.passwordResetOtp = await bcrypt.hash(otp, 10);
+    user.passwordResetOtpExpires = new Date(Date.now() + 600000); // 10 minutes
     await user.save();
 
-    // In production: send email with reset link containing resetToken
-    return { message: 'If an account exists with that email, a reset link has been sent' };
+    // Send OTP via email using nodemailer
+    try {
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: this.configService.get<string>('SMTP_EMAIL', 'cinevaultapp@gmail.com'),
+          pass: this.configService.get<string>('SMTP_PASSWORD', ''),
+        },
+      });
+
+      await transporter.sendMail({
+        from: `"CineVault" <${this.configService.get<string>('SMTP_EMAIL', 'cinevaultapp@gmail.com')}>`,
+        to: user.email,
+        subject: 'CineVault - Password Reset OTP',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px;background:#1a1a2e;color:#fff;border-radius:12px;">
+            <h2 style="color:#d4af37;text-align:center;">CineVault</h2>
+            <p>Hi ${user.name},</p>
+            <p>Your password reset OTP is:</p>
+            <div style="text-align:center;margin:20px 0;">
+              <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#d4af37;background:#2a2a4e;padding:12px 24px;border-radius:8px;">${otp}</span>
+            </div>
+            <p style="color:#aaa;font-size:13px;">This OTP expires in 10 minutes. If you didn't request this, please ignore this email.</p>
+          </div>
+        `,
+      });
+    } catch (e) {
+      // Log but don't fail — OTP is saved in DB regardless
+      console.error('Failed to send OTP email:', e.message);
+    }
+
+    return { message: 'If an account exists with that email, an OTP has been sent' };
+  }
+
+  async verifyOtp(email: string, otp: string): Promise<{ message: string; resetToken: string }> {
+    const user = await this.userModel
+      .findOne({ email: email.toLowerCase(), passwordResetOtpExpires: { $gt: new Date() } })
+      .select('+passwordResetOtp');
+
+    if (!user || !user.passwordResetOtp) {
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+
+    const isValid = await bcrypt.compare(otp, user.passwordResetOtp);
+    if (!isValid) {
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+
+    // OTP verified — generate a reset token for the password change step
+    const resetToken = uuidv4();
+    user.passwordResetToken = await bcrypt.hash(resetToken, 10);
+    user.passwordResetExpires = new Date(Date.now() + 600000); // 10 min
+    user.passwordResetOtp = null as any;
+    user.passwordResetOtpExpires = null as any;
+    await user.save();
+
+    return { message: 'OTP verified successfully', resetToken };
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    const user = await this.userModel.findById(userId).select('+password');
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+    if (!user.password) {
+      throw new BadRequestException('Cannot change password for social login accounts');
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    return { message: 'Password changed successfully' };
   }
 
   async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {

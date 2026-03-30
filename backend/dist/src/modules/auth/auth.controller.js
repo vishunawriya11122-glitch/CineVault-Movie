@@ -21,6 +21,7 @@ const register_dto_1 = require("./dto/register.dto");
 const login_dto_1 = require("./dto/login.dto");
 const forgot_password_dto_1 = require("./dto/forgot-password.dto");
 const reset_password_dto_1 = require("./dto/reset-password.dto");
+const current_user_decorator_1 = require("./decorators/current-user.decorator");
 let AuthController = class AuthController {
     constructor(authService) {
         this.authService = authService;
@@ -53,6 +54,12 @@ let AuthController = class AuthController {
     }
     async resetPassword(dto) {
         return this.authService.resetPassword(dto.token, dto.password);
+    }
+    async verifyOtp(body) {
+        return this.authService.verifyOtp(body.email, body.otp);
+    }
+    async changePassword(userId, body) {
+        return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
     }
     async logout(res) {
         res.clearCookie('refreshToken', {
@@ -143,6 +150,27 @@ __decorate([
     __metadata("design:paramtypes", [reset_password_dto_1.ResetPasswordDto]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "resetPassword", null);
+__decorate([
+    (0, common_1.Post)('verify-otp'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Verify OTP for password reset' }),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "verifyOtp", null);
+__decorate([
+    (0, common_1.Post)('change-password'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Change password (authenticated user)' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('userId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "changePassword", null);
 __decorate([
     (0, common_1.Post)('logout'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),

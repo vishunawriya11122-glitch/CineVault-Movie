@@ -28,9 +28,16 @@ let UsersController = class UsersController {
     async updateMe(userId, updates) {
         return this.usersService.updateProfile(userId, updates);
     }
+    async deleteAccount(userId) {
+        await this.usersService.deleteAccount(userId);
+        return { message: 'Account deleted successfully' };
+    }
     async updateFcmToken(userId, token) {
         await this.usersService.updateFcmToken(userId, token);
         return { message: 'FCM token registered' };
+    }
+    async getMyNotifications(userId, page, limit) {
+        return this.usersService.getUserNotifications(page, limit);
     }
 };
 exports.UsersController = UsersController;
@@ -52,6 +59,14 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "updateMe", null);
 __decorate([
+    (0, common_1.Delete)('me'),
+    (0, swagger_1.ApiOperation)({ summary: 'Delete user account permanently' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('userId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "deleteAccount", null);
+__decorate([
     (0, common_1.Patch)('me/fcm-token'),
     (0, swagger_1.ApiOperation)({ summary: 'Register FCM token for push notifications' }),
     __param(0, (0, current_user_decorator_1.CurrentUser)('userId')),
@@ -60,6 +75,16 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "updateFcmToken", null);
+__decorate([
+    (0, common_1.Get)('me/notifications'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get notifications for current user' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('userId')),
+    __param(1, (0, common_1.Query)('page')),
+    __param(2, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Number, Number]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "getMyNotifications", null);
 exports.UsersController = UsersController = __decorate([
     (0, swagger_1.ApiTags)('Users'),
     (0, swagger_1.ApiBearerAuth)(),

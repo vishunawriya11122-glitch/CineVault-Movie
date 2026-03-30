@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -26,6 +26,13 @@ export class UsersController {
     return this.usersService.updateProfile(userId, updates);
   }
 
+  @Delete('me')
+  @ApiOperation({ summary: 'Delete user account permanently' })
+  async deleteAccount(@CurrentUser('userId') userId: string) {
+    await this.usersService.deleteAccount(userId);
+    return { message: 'Account deleted successfully' };
+  }
+
   @Patch('me/fcm-token')
   @ApiOperation({ summary: 'Register FCM token for push notifications' })
   async updateFcmToken(
@@ -34,5 +41,15 @@ export class UsersController {
   ) {
     await this.usersService.updateFcmToken(userId, token);
     return { message: 'FCM token registered' };
+  }
+
+  @Get('me/notifications')
+  @ApiOperation({ summary: 'Get notifications for current user' })
+  async getMyNotifications(
+    @CurrentUser('userId') userId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.usersService.getUserNotifications(page, limit);
   }
 }

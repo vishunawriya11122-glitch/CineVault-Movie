@@ -49,6 +49,8 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
 
     val autoplayEnabled: Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_ENABLED] ?: true }
 
+    val playbackQuality: Flow<String?> = context.dataStore.data.map { it[DEFAULT_QUALITY] ?: "Auto" }
+
     val likedMovieIds: Flow<Set<String>> = context.dataStore.data.map { it[LIKED_MOVIE_IDS] ?: emptySet() }
 
     suspend fun toggleLikedMovie(movieId: String) {
@@ -102,6 +104,18 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
 
     suspend fun clearSession() {
         context.dataStore.edit { it.clear() }
+    }
+
+    suspend fun saveName(name: String) {
+        context.dataStore.edit { prefs ->
+            prefs[USER_NAME] = name
+        }
+    }
+
+    suspend fun savePlaybackQuality(quality: String) {
+        context.dataStore.edit { prefs ->
+            prefs[DEFAULT_QUALITY] = quality
+        }
     }
 
     suspend fun getAccessTokenSync(): String? {

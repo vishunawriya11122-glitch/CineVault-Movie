@@ -25,6 +25,12 @@ interface CineVaultApi {
     @POST("auth/logout")
     suspend fun logout(): Response<MessageResponse>
 
+    @POST("auth/verify-otp")
+    suspend fun verifyOtp(@Body request: VerifyOtpRequest): Response<VerifyOtpResponse>
+
+    @POST("auth/change-password")
+    suspend fun changePassword(@Body request: ChangePasswordRequest): Response<MessageResponse>
+
     // Users
     @GET("users/me")
     suspend fun getMe(): Response<UserDto>
@@ -34,6 +40,15 @@ interface CineVaultApi {
 
     @PATCH("users/me/fcm-token")
     suspend fun updateFcmToken(@Body body: Map<String, String>): Response<MessageResponse>
+
+    @DELETE("users/me")
+    suspend fun deleteAccount(): Response<MessageResponse>
+
+    @GET("users/me/notifications")
+    suspend fun getUserNotifications(
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 20,
+    ): Response<NotificationsResponse>
 
     // Profiles
     @GET("profiles")
@@ -154,6 +169,9 @@ interface CineVaultApi {
         @Header("x-profile-id") profileId: String,
         @Path("contentId") contentId: String,
     ): Response<WatchProgressDto?>
+
+    @DELETE("watch-progress/history/{id}")
+    suspend fun deleteHistoryItem(@Path("id") id: String): Response<MessageResponse>
 
     // Watchlist
     @GET("watchlist")

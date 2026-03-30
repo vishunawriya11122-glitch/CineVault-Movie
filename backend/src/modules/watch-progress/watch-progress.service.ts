@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { WatchProgress, WatchProgressDocument } from '../../schemas/watch-progress.schema';
@@ -116,5 +116,13 @@ export class WatchProgressService {
       userId: new Types.ObjectId(userId),
       profileId: new Types.ObjectId(profileId),
     });
+  }
+
+  async deleteHistoryItem(userId: string, itemId: string): Promise<void> {
+    const result = await this.progressModel.findOneAndDelete({
+      _id: new Types.ObjectId(itemId),
+      userId: new Types.ObjectId(userId),
+    });
+    if (!result) throw new NotFoundException('History item not found');
   }
 }

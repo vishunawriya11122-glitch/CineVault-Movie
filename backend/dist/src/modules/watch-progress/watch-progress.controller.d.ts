@@ -22,4 +22,7 @@ export declare class WatchProgressController {
     clearHistory(userId: string, profileId: string): Promise<{
         message: string;
     }>;
+    deleteHistoryItem(userId: string, id: string): Promise<{
+        message: string;
+    }>;
 }

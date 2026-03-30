@@ -79,4 +79,14 @@ export class WatchProgressController {
     await this.watchProgressService.clearHistory(userId, profileId);
     return { message: 'Watch history cleared' };
   }
+
+  @Delete('history/:id')
+  @ApiOperation({ summary: 'Delete a single watch history item' })
+  async deleteHistoryItem(
+    @CurrentUser('userId') userId: string,
+    @Param('id') id: string,
+  ) {
+    await this.watchProgressService.deleteHistoryItem(userId, id);
+    return { message: 'History item deleted' };
+  }
 }

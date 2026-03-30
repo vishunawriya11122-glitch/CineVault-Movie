@@ -120,13 +120,77 @@ let AuthService = class AuthService {
     async forgotPassword(email) {
         const user = await this.userModel.findOne({ email: email.toLowerCase() });
         if (!user) {
-            return { message: 'If an account exists with that email, a reset link has been sent' };
+            return { message: 'If an account exists with that email, an OTP has been sent' };
+        }
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        user.passwordResetOtp = await bcrypt.hash(otp, 10);
+        user.passwordResetOtpExpires = new Date(Date.now() + 600000);
+        await user.save();
+        try {
+            const nodemailer = require('nodemailer');
+            const transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    user: this.configService.get('SMTP_EMAIL', 'cinevaultapp@gmail.com'),
+                    pass: this.configService.get('SMTP_PASSWORD', ''),
+                },
+            });
+            await transporter.sendMail({
+                from: `"CineVault" <${this.configService.get('SMTP_EMAIL', 'cinevaultapp@gmail.com')}>`,
+                to: user.email,
+                subject: 'CineVault - Password Reset OTP',
+                html: `
+          <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px;background:#1a1a2e;color:#fff;border-radius:12px;">
+            <h2 style="color:#d4af37;text-align:center;">CineVault</h2>
+            <p>Hi ${user.name},</p>
+            <p>Your password reset OTP is:</p>
+            <div style="text-align:center;margin:20px 0;">
+              <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#d4af37;background:#2a2a4e;padding:12px 24px;border-radius:8px;">${otp}</span>
+            </div>
+            <p style="color:#aaa;font-size:13px;">This OTP expires in 10 minutes. If you didn't request this, please ignore this email.</p>
+          </div>
+        `,
+            });
+        }
+        catch (e) {
+            console.error('Failed to send OTP email:', e.message);
+        }
+        return { message: 'If an account exists with that email, an OTP has been sent' };
+    }
+    async verifyOtp(email, otp) {
+        const user = await this.userModel
+            .findOne({ email: email.toLowerCase(), passwordResetOtpExpires: { $gt: new Date() } })
+            .select('+passwordResetOtp');
+        if (!user || !user.passwordResetOtp) {
+            throw new common_1.BadRequestException('Invalid or expired OTP');
+        }
+        const isValid = await bcrypt.compare(otp, user.passwordResetOtp);
+        if (!isValid) {
+            throw new common_1.BadRequestException('Invalid or expired OTP');
         }
         const resetToken = (0, uuid_1.v4)();
         user.passwordResetToken = await bcrypt.hash(resetToken, 10);
-        user.passwordResetExpires = new Date(Date.now() + 3600000);
+        user.passwordResetExpires = new Date(Date.now() + 600000);
+        user.passwordResetOtp = null;
+        user.passwordResetOtpExpires = null;
         await user.save();
-        return { message: 'If an account exists with that email, a reset link has been sent' };
+        return { message: 'OTP verified successfully', resetToken };
+    }
+    async changePassword(userId, currentPassword, newPassword) {
+        const user = await this.userModel.findById(userId).select('+password');
+        if (!user) {
+            throw new common_1.BadRequestException('User not found');
+        }
+        if (!user.password) {
+            throw new common_1.BadRequestException('Cannot change password for social login accounts');
+        }
+        const isValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isValid) {
+            throw new common_1.UnauthorizedException('Current password is incorrect');
+        }
+        user.password = await bcrypt.hash(newPassword, 12);
+        await user.save();
+        return { message: 'Password changed successfully' };
     }
     async resetPassword(token, newPassword) {
         const users = await this.userModel

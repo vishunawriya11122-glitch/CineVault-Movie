@@ -21,4 +21,5 @@ export declare class WatchProgressService {
     getProgress(userId: string, profileId: string, contentId: string): Promise<WatchProgressDocument | null>;
     getLatestEpisodeForSeries(userId: string, profileId: string, seriesId: string): Promise<WatchProgressDocument | null>;
     clearHistory(userId: string, profileId: string): Promise<void>;
+    deleteHistoryItem(userId: string, itemId: string): Promise<void>;
 }

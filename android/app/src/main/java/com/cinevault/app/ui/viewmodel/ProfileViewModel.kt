@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cinevault.app.data.local.SessionManager
 import com.cinevault.app.data.model.*
+import com.cinevault.app.data.repository.AuthRepository
 import com.cinevault.app.data.repository.ContentRepository
 import com.cinevault.app.data.repository.ProfileRepository
 import com.cinevault.app.data.repository.WatchProgressRepository
@@ -31,6 +32,7 @@ class ProfileViewModel @Inject constructor(
     private val watchProgressRepository: WatchProgressRepository,
     private val watchlistRepository: WatchlistRepository,
     private val contentRepository: ContentRepository,
+    private val authRepository: AuthRepository,
     private val sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -129,6 +131,20 @@ class ProfileViewModel @Inject constructor(
             when (val result = profileRepository.deleteProfile(profileId)) {
                 is Result.Success -> loadProfiles()
                 is Result.Error -> _uiState.update { it.copy(error = result.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun deleteHistoryItem(itemId: String) {
+        viewModelScope.launch {
+            when (authRepository.deleteHistoryItem(itemId)) {
+                is Result.Success -> {
+                    _uiState.update { state ->
+                        state.copy(watchHistory = state.watchHistory.filter { it.id != itemId })
+                    }
+                }
+                is Result.Error -> {}
                 is Result.Loading -> {}
             }
         }

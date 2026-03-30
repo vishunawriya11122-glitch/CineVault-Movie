@@ -17,9 +17,13 @@ const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const user_schema_1 = require("../../schemas/user.schema");
+const notification_schema_1 = require("../../schemas/notification.schema");
 let UsersService = class UsersService {
-    constructor(userModel) {
+    constructor(userModel, notificationModel, profileModel, progressModel) {
         this.userModel = userModel;
+        this.notificationModel = notificationModel;
+        this.profileModel = profileModel;
+        this.progressModel = progressModel;
     }
     async findById(id) {
         const user = await this.userModel.findById(id);
@@ -70,11 +74,36 @@ let UsersService = class UsersService {
         ]);
         return { total, active: total - suspended, suspended };
     }
+    async deleteAccount(userId) {
+        const user = await this.userModel.findById(userId);
+        if (!user)
+            throw new common_1.NotFoundException('User not found');
+        await Promise.all([
+            this.profileModel.deleteMany({ userId: new mongoose_2.Types.ObjectId(userId) }),
+            this.progressModel.deleteMany({ userId: new mongoose_2.Types.ObjectId(userId) }),
+            this.userModel.findByIdAndDelete(userId),
+        ]);
+    }
+    async getUserNotifications(page = 1, limit = 20) {
+        const skip = (page - 1) * limit;
+        const filter = { isSent: true, targetAudience: 'all' };
+        const [notifications, total] = await Promise.all([
+            this.notificationModel.find(filter).sort({ sentAt: -1 }).skip(skip).limit(limit),
+            this.notificationModel.countDocuments(filter),
+        ]);
+        return { notifications, total };
+    }
 };
 exports.UsersService = UsersService;
 exports.UsersService = UsersService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(user_schema_1.User.name)),
-    __metadata("design:paramtypes", [mongoose_2.Model])
+    __param(1, (0, mongoose_1.InjectModel)(notification_schema_1.Notification.name)),
+    __param(2, (0, mongoose_1.InjectModel)('Profile')),
+    __param(3, (0, mongoose_1.InjectModel)('WatchProgress')),
+    __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model,
+        mongoose_2.Model,
+        mongoose_2.Model])
 ], UsersService);
 //# sourceMappingURL=users.service.js.map

@@ -1,8 +1,14 @@
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../../schemas/user.schema';
+import { NotificationDocument } from '../../schemas/notification.schema';
+import { ProfileDocument } from '../../schemas/profile.schema';
+import { WatchProgressDocument } from '../../schemas/watch-progress.schema';
 export declare class UsersService {
     private userModel;
-    constructor(userModel: Model<UserDocument>);
+    private notificationModel;
+    private profileModel;
+    private progressModel;
+    constructor(userModel: Model<UserDocument>, notificationModel: Model<NotificationDocument>, profileModel: Model<ProfileDocument>, progressModel: Model<WatchProgressDocument>);
     findById(id: string): Promise<UserDocument>;
     findAll(page?: number, limit?: number): Promise<{
         users: UserDocument[];
@@ -17,5 +23,10 @@ export declare class UsersService {
         total: number;
         active: number;
         suspended: number;
+    }>;
+    deleteAccount(userId: string): Promise<void>;
+    getUserNotifications(page?: number, limit?: number): Promise<{
+        notifications: NotificationDocument[];
+        total: number;
     }>;
 }

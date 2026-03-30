@@ -15,6 +15,13 @@ sealed class Screen(val route: String) {
     data object Downloads : Screen("downloads")
     data object WatchHistory : Screen("watch_history")
     data object Settings : Screen("settings")
+    data object ChangePassword : Screen("change_password")
+    data object AccountSettings : Screen("account_settings")
+    data object PrivacySecurity : Screen("privacy_security")
+    data object PlaybackQuality : Screen("playback_quality")
+    data object AboutCineVault : Screen("about_cinevault")
+    data object PrivacyPolicy : Screen("privacy_policy")
+    data object TermsOfService : Screen("terms_of_service")
 
     data object SectionDetail : Screen("section/{sectionId}") {
         fun createRoute(sectionId: String) = "section/$sectionId"

@@ -31,6 +31,8 @@ export declare class User {
     deviceInfo: string;
     passwordResetToken: string;
     passwordResetExpires: Date;
+    passwordResetOtp: string;
+    passwordResetOtpExpires: Date;
 }
 export declare const UserSchema: import("mongoose").Schema<User, import("mongoose").Model<User, any, any, any, Document<unknown, any, User, any, {}> & User & {
     _id: Types.ObjectId;

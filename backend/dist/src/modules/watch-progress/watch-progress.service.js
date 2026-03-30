@@ -85,6 +85,14 @@ let WatchProgressService = class WatchProgressService {
             profileId: new mongoose_2.Types.ObjectId(profileId),
         });
     }
+    async deleteHistoryItem(userId, itemId) {
+        const result = await this.progressModel.findOneAndDelete({
+            _id: new mongoose_2.Types.ObjectId(itemId),
+            userId: new mongoose_2.Types.ObjectId(userId),
+        });
+        if (!result)
+            throw new common_1.NotFoundException('History item not found');
+    }
 };
 exports.WatchProgressService = WatchProgressService;
 exports.WatchProgressService = WatchProgressService = __decorate([

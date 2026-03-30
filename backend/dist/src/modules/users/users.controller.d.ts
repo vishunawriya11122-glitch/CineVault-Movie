@@ -7,7 +7,14 @@ export declare class UsersController {
         name?: string;
         avatarUrl?: string;
     }): Promise<import("../../schemas/user.schema").UserDocument>;
+    deleteAccount(userId: string): Promise<{
+        message: string;
+    }>;
     updateFcmToken(userId: string, token: string): Promise<{
         message: string;
+    }>;
+    getMyNotifications(userId: string, page?: number, limit?: number): Promise<{
+        notifications: import("../../schemas/notification.schema").NotificationDocument[];
+        total: number;
     }>;
 }

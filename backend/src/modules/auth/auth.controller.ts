@@ -8,15 +8,17 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Delete,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { CurrentUser } from './decorators/current-user.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -82,6 +84,25 @@ export class AuthController {
   @ApiOperation({ summary: 'Reset password with token' })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto.token, dto.password);
+  }
+
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify OTP for password reset' })
+  async verifyOtp(@Body() body: { email: string; otp: string }) {
+    return this.authService.verifyOtp(body.email, body.otp);
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change password (authenticated user)' })
+  async changePassword(
+    @CurrentUser('userId') userId: string,
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
   }
 
   @Post('logout')

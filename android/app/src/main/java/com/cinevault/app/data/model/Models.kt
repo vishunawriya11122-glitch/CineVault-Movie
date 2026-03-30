@@ -321,3 +321,26 @@ data class AutocompleteItem(
 
 // Streaming
 data class SignedUrlResponse(val url: String)
+
+// Change Password
+data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
+
+// OTP Verification
+data class VerifyOtpRequest(val email: String, val otp: String)
+data class VerifyOtpResponse(val message: String, val resetToken: String)
+
+// Notification (user-facing)
+data class NotificationDto(
+    @SerializedName("_id") val id: String,
+    val title: String,
+    val body: String,
+    val imageUrl: String?,
+    val deepLink: String?,
+    val isSent: Boolean,
+    val sentAt: String?,
+    val createdAt: String?,
+)
+data class NotificationsResponse(
+    val notifications: List<NotificationDto>,
+    val total: Int,
+)

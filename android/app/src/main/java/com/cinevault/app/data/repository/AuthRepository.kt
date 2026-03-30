@@ -116,4 +116,83 @@ class AuthRepository @Inject constructor(
             Result.Success(Unit)
         }
     }
+
+    suspend fun verifyOtp(email: String, otp: String): Result<String> {
+        return try {
+            val response = api.verifyOtp(VerifyOtpRequest(email, otp))
+            if (response.isSuccessful && response.body() != null) {
+                Result.Success(response.body()!!.resetToken)
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "An error occurred")
+        }
+    }
+
+    suspend fun resetPassword(token: String, password: String): Result<String> {
+        return try {
+            val response = api.resetPassword(ResetPasswordRequest(token, password))
+            if (response.isSuccessful) {
+                Result.Success(response.body()?.message ?: "Password reset successfully")
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "An error occurred")
+        }
+    }
+
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<String> {
+        return try {
+            val response = api.changePassword(ChangePasswordRequest(currentPassword, newPassword))
+            if (response.isSuccessful) {
+                Result.Success(response.body()?.message ?: "Password changed successfully")
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "An error occurred")
+        }
+    }
+
+    suspend fun deleteAccount(): Result<String> {
+        return try {
+            val response = api.deleteAccount()
+            if (response.isSuccessful) {
+                sessionManager.clearSession()
+                Result.Success(response.body()?.message ?: "Account deleted")
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "An error occurred")
+        }
+    }
+
+    suspend fun getNotifications(page: Int = 1): Result<NotificationsResponse> {
+        return try {
+            val response = api.getUserNotifications(page)
+            if (response.isSuccessful && response.body() != null) {
+                Result.Success(response.body()!!)
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "An error occurred")
+        }
+    }
+
+    suspend fun deleteHistoryItem(id: String): Result<String> {
+        return try {
+            val response = api.deleteHistoryItem(id)
+            if (response.isSuccessful) {
+                Result.Success("Deleted")
+            } else {
+                Result.Error(response.message())
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "An error occurred")
+        }
+    }
 }

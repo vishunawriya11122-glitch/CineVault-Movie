@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.*
@@ -58,6 +60,17 @@ fun WatchHistoryScreen(
                         contentDescription = "Back",
                         tint = CineVaultTheme.colors.textPrimary
                     )
+                }
+            },
+            actions = {
+                if (uiState.watchHistory.isNotEmpty()) {
+                    IconButton(onClick = {
+                        uiState.watchHistory.forEach { item ->
+                            item.id?.let { viewModel.deleteHistoryItem(it) }
+                        }
+                    }) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear All", tint = CineVaultTheme.colors.textSecondary)
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -128,7 +141,8 @@ fun WatchHistoryScreen(
                             } else {
                                 onHistoryItemClick(progress.contentId, null)
                             }
-                        }
+                        },
+                        onDelete = { progress.id?.let { viewModel.deleteHistoryItem(it) } },
                     )
                 }
                 item { Spacer(modifier = Modifier.height(20.dp)) }
@@ -141,6 +155,7 @@ fun WatchHistoryScreen(
 private fun WatchHistoryItem(
     progress: WatchProgressDto,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -228,6 +243,10 @@ private fun WatchHistoryItem(
                     color = CineVaultTheme.colors.accentGold,
                 )
             }
+        }
+
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = CineVaultTheme.colors.textSecondary, modifier = Modifier.size(18.dp))
         }
     }
 }

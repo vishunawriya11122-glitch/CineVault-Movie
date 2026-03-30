@@ -29,6 +29,13 @@ fun SettingsScreen(
     onLogout: () -> Unit = {},
     onNavigateToNotifications: () -> Unit = {},
     onNavigateToWatchHistory: () -> Unit = {},
+    onNavigateToAccountSettings: () -> Unit = {},
+    onNavigateToPrivacySecurity: () -> Unit = {},
+    onNavigateToChangePassword: () -> Unit = {},
+    onNavigateToPlaybackQuality: () -> Unit = {},
+    onNavigateToAbout: () -> Unit = {},
+    onNavigateToPrivacyPolicy: () -> Unit = {},
+    onNavigateToTerms: () -> Unit = {},
     authViewModel: AuthViewModel = hiltViewModel(),
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -87,11 +94,11 @@ fun SettingsScreen(
             SettingsGroupHeader("Account")
             Surface(shape = RoundedCornerShape(14.dp), color = CineVaultTheme.colors.surface, modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    SettingsRowItem(icon = Icons.Filled.Person, title = "Account Settings", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Person, title = "Account Settings", onClick = onNavigateToAccountSettings)
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
-                    SettingsRowItem(icon = Icons.Filled.Lock, title = "Privacy & Security", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Lock, title = "Privacy & Security", onClick = onNavigateToPrivacySecurity)
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
-                    SettingsRowItem(icon = Icons.Filled.Password, title = "Change Password", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Password, title = "Change Password", onClick = onNavigateToChangePassword)
                 }
             }
 
@@ -104,7 +111,7 @@ fun SettingsScreen(
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
                     SettingsRowItem(icon = Icons.Filled.Download, title = "Downloads", onClick = {})
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
-                    SettingsRowItem(icon = Icons.Filled.Tune, title = "Playback Quality", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Tune, title = "Playback Quality", onClick = onNavigateToPlaybackQuality)
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
                     SettingsRowItem(icon = Icons.Filled.History, title = "Watch History", onClick = onNavigateToWatchHistory)
                 }
@@ -115,11 +122,11 @@ fun SettingsScreen(
             SettingsGroupHeader("About")
             Surface(shape = RoundedCornerShape(14.dp), color = CineVaultTheme.colors.surface, modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    SettingsRowItem(icon = Icons.Filled.Info, title = "About CineVault", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Info, title = "About CineVault", onClick = onNavigateToAbout)
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
-                    SettingsRowItem(icon = Icons.Filled.Shield, title = "Privacy Policy", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Shield, title = "Privacy Policy", onClick = onNavigateToPrivacyPolicy)
                     HorizontalDivider(color = CineVaultTheme.colors.border.copy(alpha = 0.3f), modifier = Modifier.padding(start = 52.dp))
-                    SettingsRowItem(icon = Icons.Filled.Description, title = "Terms of Service", onClick = {})
+                    SettingsRowItem(icon = Icons.Filled.Description, title = "Terms of Service", onClick = onNavigateToTerms)
                 }
             }
 

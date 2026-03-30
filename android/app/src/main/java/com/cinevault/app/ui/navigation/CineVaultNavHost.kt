@@ -763,7 +763,53 @@ fun CineVaultNavHost(navController: NavHostController = rememberNavController())
                     },
                     onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) },
                     onNavigateToWatchHistory = { navController.navigate(Screen.WatchHistory.route) },
+                    onNavigateToAccountSettings = { navController.navigate(Screen.AccountSettings.route) },
+                    onNavigateToPrivacySecurity = { navController.navigate(Screen.PrivacySecurity.route) },
+                    onNavigateToChangePassword = { navController.navigate(Screen.ChangePassword.route) },
+                    onNavigateToPlaybackQuality = { navController.navigate(Screen.PlaybackQuality.route) },
+                    onNavigateToAbout = { navController.navigate(Screen.AboutCineVault.route) },
+                    onNavigateToPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) },
+                    onNavigateToTerms = { navController.navigate(Screen.TermsOfService.route) },
                 )
+            }
+
+            composable(Screen.ChangePassword.route) {
+                ChangePasswordScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.AccountSettings.route) {
+                AccountSettingsScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.PrivacySecurity.route) {
+                PrivacySecurityScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToLogin = {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                )
+            }
+
+            composable(Screen.PlaybackQuality.route) {
+                PlaybackQualityScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.AboutCineVault.route) {
+                AboutCineVaultScreen(
+                    onBack = { navController.popBackStack() },
+                    onPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) },
+                    onTermsOfService = { navController.navigate(Screen.TermsOfService.route) },
+                )
+            }
+
+            composable(Screen.PrivacyPolicy.route) {
+                PrivacyPolicyScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.TermsOfService.route) {
+                TermsOfServiceScreen(onBack = { navController.popBackStack() })
             }
 
             composable(Screen.Notifications.route) {

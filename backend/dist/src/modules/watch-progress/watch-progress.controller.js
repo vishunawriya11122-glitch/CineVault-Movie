@@ -41,6 +41,10 @@ let WatchProgressController = class WatchProgressController {
         await this.watchProgressService.clearHistory(userId, profileId);
         return { message: 'Watch history cleared' };
     }
+    async deleteHistoryItem(userId, id) {
+        await this.watchProgressService.deleteHistoryItem(userId, id);
+        return { message: 'History item deleted' };
+    }
 };
 exports.WatchProgressController = WatchProgressController;
 __decorate([
@@ -102,6 +106,15 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], WatchProgressController.prototype, "clearHistory", null);
+__decorate([
+    (0, common_1.Delete)('history/:id'),
+    (0, swagger_1.ApiOperation)({ summary: 'Delete a single watch history item' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('userId')),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], WatchProgressController.prototype, "deleteHistoryItem", null);
 exports.WatchProgressController = WatchProgressController = __decorate([
     (0, swagger_1.ApiTags)('Watch Progress'),
     (0, swagger_1.ApiBearerAuth)(),

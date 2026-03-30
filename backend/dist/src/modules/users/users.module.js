@@ -12,12 +12,22 @@ const mongoose_1 = require("@nestjs/mongoose");
 const users_controller_1 = require("./users.controller");
 const users_service_1 = require("./users.service");
 const user_schema_1 = require("../../schemas/user.schema");
+const notification_schema_1 = require("../../schemas/notification.schema");
+const profile_schema_1 = require("../../schemas/profile.schema");
+const watch_progress_schema_1 = require("../../schemas/watch-progress.schema");
 let UsersModule = class UsersModule {
 };
 exports.UsersModule = UsersModule;
 exports.UsersModule = UsersModule = __decorate([
     (0, common_1.Module)({
-        imports: [mongoose_1.MongooseModule.forFeature([{ name: user_schema_1.User.name, schema: user_schema_1.UserSchema }])],
+        imports: [
+            mongoose_1.MongooseModule.forFeature([
+                { name: user_schema_1.User.name, schema: user_schema_1.UserSchema },
+                { name: notification_schema_1.Notification.name, schema: notification_schema_1.NotificationSchema },
+                { name: 'Profile', schema: profile_schema_1.ProfileSchema },
+                { name: 'WatchProgress', schema: watch_progress_schema_1.WatchProgressSchema },
+            ]),
+        ],
         controllers: [users_controller_1.UsersController],
         providers: [users_service_1.UsersService],
         exports: [users_service_1.UsersService],

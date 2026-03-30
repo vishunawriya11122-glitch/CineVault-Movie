@@ -33,6 +33,19 @@ export declare class AuthController {
     resetPassword(dto: ResetPasswordDto): Promise<{
         message: string;
     }>;
+    verifyOtp(body: {
+        email: string;
+        otp: string;
+    }): Promise<{
+        message: string;
+        resetToken: string;
+    }>;
+    changePassword(userId: string, body: {
+        currentPassword: string;
+        newPassword: string;
+    }): Promise<{
+        message: string;
+    }>;
     logout(res: Response): Promise<{
         message: string;
     }>;
