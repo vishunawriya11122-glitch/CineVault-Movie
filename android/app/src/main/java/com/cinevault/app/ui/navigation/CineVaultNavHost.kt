@@ -612,7 +612,7 @@ private fun MeNavItem(selected: Boolean, goldColor: Color) {
         ) {
             Text(
                 text = "\uD83D\uDE0E",
-                fontSize = 20.sp,
+                fontSize = 26.sp,
                 textAlign = TextAlign.Center,
             )
         }
