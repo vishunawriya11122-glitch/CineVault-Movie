@@ -82,6 +82,11 @@ export class BunnyService {
     );
   }
 
+  /** Check if a URL is a Bunny CDN URL */
+  private isBunnyUrl(url: string): boolean {
+    return url?.includes('b-cdn.net') || url?.includes('bunnycdn.com') || false;
+  }
+
   /** Upload a file from a source URL to Bunny Storage, streaming directly */
   async uploadFromUrl(
     sourceUrl: string,
@@ -102,9 +107,31 @@ export class BunnyService {
       );
     }
 
+    // Validate: check content-type is video, not HTML
+    const contentType = downloadRes.headers.get('content-type') || '';
+    if (contentType.includes('text/html') || contentType.includes('text/plain')) {
+      // Read a small chunk to confirm it's a quota/error page
+      const body = await downloadRes.text();
+      if (body.includes('Quota exceeded') || body.includes('download_warning') || body.includes('Google Drive')) {
+        throw new Error('Google Drive quota exceeded — file not downloadable right now');
+      }
+      throw new Error(`Source returned non-video content: ${contentType}`);
+    }
+
     const contentLength = downloadRes.headers.get('content-length');
+    const sizeBytes = contentLength ? Number(contentLength) : 0;
+
+    // Validate: video files should be at least 100KB
+    if (sizeBytes > 0 && sizeBytes < 102400) {
+      const body = await downloadRes.text();
+      if (body.includes('Quota exceeded') || body.includes('Google Drive') || body.includes('<!DOCTYPE')) {
+        throw new Error('Google Drive quota exceeded — received HTML error page instead of video');
+      }
+      throw new Error(`File too small (${sizeBytes} bytes) — likely not a valid video`);
+    }
+
     this.logger.log(
-      `Downloading: ${sourceUrl.substring(0, 80)}... (${contentLength ? Math.round(Number(contentLength) / 1024 / 1024) + 'MB' : 'unknown size'})`,
+      `Downloading: ${sourceUrl.substring(0, 80)}... (${contentLength ? Math.round(sizeBytes / 1024 / 1024) + 'MB' : 'unknown size'})`,
     );
 
     // Upload to Bunny Storage
@@ -361,5 +388,277 @@ export class BunnyService {
     this.logger.log(
       `Migration complete: ${this.progress.completed}/${this.progress.total} (${this.progress.failed} failed)`,
     );
+  }
+
+  /** Validate a single CDN URL — returns true if file is a valid video (>100KB) */
+  private async validateCdnFile(url: string): Promise<{ valid: boolean; size: number }> {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      const size = Number(res.headers.get('content-length') || 0);
+      return { valid: size > 102400, size };
+    } catch {
+      return { valid: false, size: 0 };
+    }
+  }
+
+  /** Delete a file from Bunny Storage */
+  private async deleteBunnyFile(cdnUrl: string): Promise<boolean> {
+    try {
+      // CDN URL: https://cinevault-cdn.b-cdn.net/movies/xxx/source_0.mp4
+      // Storage path: movies/xxx/source_0.mp4
+      const path = cdnUrl.replace(this.cdnUrl + '/', '');
+      const deleteUrl = `https://${this.storageHost}/${this.zoneName}/${path}`;
+      const res = await fetch(deleteUrl, {
+        method: 'DELETE',
+        headers: { AccessKey: this.storageKey },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Revert all bad Bunny CDN migrations:
+   * 1. Find all movies/episodes with CDN URLs
+   * 2. HEAD-check each CDN file
+   * 3. If file is <100KB (HTML garbage), remove the streaming source entry
+   * 4. Delete the bad file from Bunny Storage
+   */
+  async revertBadMigrations(): Promise<{
+    moviesReverted: { id: string; title: string; sourcesRemoved: number }[];
+    episodesReverted: { id: string; title: string; sourcesRemoved: number }[];
+    bunnyFilesDeleted: number;
+    errors: string[];
+  }> {
+    const moviesReverted: { id: string; title: string; sourcesRemoved: number }[] = [];
+    const episodesReverted: { id: string; title: string; sourcesRemoved: number }[] = [];
+    let bunnyFilesDeleted = 0;
+    const errors: string[] = [];
+
+    // --- Movies ---
+    const allMovies = await this.movieModel.find().exec();
+    for (const movie of allMovies) {
+      let sourcesRemoved = 0;
+
+      if (movie.streamingSources?.length) {
+        const validSources = [];
+        for (const src of movie.streamingSources) {
+          if (this.isBunnyUrl(src.url)) {
+            const { valid, size } = await this.validateCdnFile(src.url);
+            if (!valid) {
+              this.logger.warn(`Bad CDN file: ${movie.title} — ${src.url} (${size} bytes)`);
+              const deleted = await this.deleteBunnyFile(src.url);
+              if (deleted) bunnyFilesDeleted++;
+              sourcesRemoved++;
+              continue; // Skip this source — don't keep it
+            }
+          }
+          validSources.push(src);
+        }
+        if (sourcesRemoved > 0) {
+          movie.streamingSources = validSources as any;
+        }
+      }
+
+      // Check trailer
+      if (movie.trailerUrl && this.isBunnyUrl(movie.trailerUrl)) {
+        const { valid, size } = await this.validateCdnFile(movie.trailerUrl);
+        if (!valid) {
+          this.logger.warn(`Bad CDN trailer: ${movie.title} — ${movie.trailerUrl} (${size} bytes)`);
+          const deleted = await this.deleteBunnyFile(movie.trailerUrl);
+          if (deleted) bunnyFilesDeleted++;
+          movie.trailerUrl = '';
+          sourcesRemoved++;
+        }
+      }
+
+      if (sourcesRemoved > 0) {
+        await movie.save();
+        moviesReverted.push({ id: movie._id.toString(), title: movie.title, sourcesRemoved });
+      }
+    }
+
+    // --- Episodes ---
+    const allEpisodes = await this.episodeModel.find().exec();
+    for (const episode of allEpisodes) {
+      let sourcesRemoved = 0;
+
+      if (episode.streamingSources?.length) {
+        const validSources = [];
+        for (const src of episode.streamingSources) {
+          if (this.isBunnyUrl(src.url)) {
+            const { valid, size } = await this.validateCdnFile(src.url);
+            if (!valid) {
+              this.logger.warn(
+                `Bad CDN episode: ${episode.title} Ep${episode.episodeNumber} — ${src.url} (${size} bytes)`,
+              );
+              const deleted = await this.deleteBunnyFile(src.url);
+              if (deleted) bunnyFilesDeleted++;
+              sourcesRemoved++;
+              continue;
+            }
+          }
+          validSources.push(src);
+        }
+        if (sourcesRemoved > 0) {
+          episode.streamingSources = validSources as any;
+        }
+      }
+
+      if (sourcesRemoved > 0) {
+        await episode.save();
+        episodesReverted.push({
+          id: episode._id.toString(),
+          title: `${episode.title || 'Episode'} ${episode.episodeNumber}`,
+          sourcesRemoved,
+        });
+      }
+    }
+
+    this.logger.log(
+      `Revert complete: ${moviesReverted.length} movies, ${episodesReverted.length} episodes reverted, ${bunnyFilesDeleted} Bunny files deleted`,
+    );
+
+    return { moviesReverted, episodesReverted, bunnyFilesDeleted, errors };
+  }
+
+  /**
+   * Bulk-set streaming sources for movies using Drive file IDs.
+   * Accepts a map of { movieId: driveFileId } and sets the Worker stream URL.
+   */
+  async bulkSetDriveUrls(
+    mappings: { movieId: string; driveFileId: string; quality?: string }[],
+  ): Promise<{ updated: number; errors: string[] }> {
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const { movieId, driveFileId, quality } of mappings) {
+      try {
+        const movie = await this.movieModel.findById(movieId);
+        if (!movie) {
+          errors.push(`Movie not found: ${movieId}`);
+          continue;
+        }
+        const workerUrl = `${this.workerUrl}/stream/${driveFileId}`;
+        movie.streamingSources = [
+          { label: quality || 'HD', url: workerUrl, quality: quality || '1080p', priority: 0 },
+        ] as any;
+        await movie.save();
+        updated++;
+        this.logger.log(`Set Drive URL for ${movie.title}: ${workerUrl}`);
+      } catch (err) {
+        errors.push(`${movieId}: ${err.message}`);
+      }
+    }
+
+    return { updated, errors };
+  }
+
+  /**
+   * Bulk-set streaming sources for episodes using Drive file IDs.
+   */
+  async bulkSetEpisodeDriveUrls(
+    mappings: { episodeId: string; driveFileId: string; quality?: string }[],
+  ): Promise<{ updated: number; errors: string[] }> {
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const { episodeId, driveFileId, quality } of mappings) {
+      try {
+        const episode = await this.episodeModel.findById(episodeId);
+        if (!episode) {
+          errors.push(`Episode not found: ${episodeId}`);
+          continue;
+        }
+        const workerUrl = `${this.workerUrl}/stream/${driveFileId}`;
+        episode.streamingSources = [
+          { label: quality || 'HD', url: workerUrl, quality: quality || '1080p', priority: 0 },
+        ] as any;
+        await episode.save();
+        updated++;
+      } catch (err) {
+        errors.push(`${episodeId}: ${err.message}`);
+      }
+    }
+
+    return { updated, errors };
+  }
+
+  /**
+   * Recover episode Drive URLs from a Google Drive folder scan.
+   * Uses the Worker /list endpoint to get file IDs, matches them to episodes by name/number.
+   */
+  async recoverEpisodesFromFolder(
+    seasonId: string,
+    folderUrl: string,
+  ): Promise<{ recovered: number; total: number; errors: string[] }> {
+    const errors: string[] = [];
+
+    // Extract folder ID
+    const folderIdMatch = folderUrl.match(/folders?\/([\w-]+)/);
+    if (!folderIdMatch) {
+      throw new Error('Invalid folder URL');
+    }
+    const folderId = folderIdMatch[1];
+
+    // List folder contents via Worker
+    const listUrl = `${this.workerUrl}/list?id=${folderId}`;
+    const listRes = await fetch(listUrl);
+    if (!listRes.ok) {
+      throw new Error(`Worker folder list failed: ${listRes.status}`);
+    }
+    const files: { id: string; name: string; mimeType: string }[] = await listRes.json() as any;
+
+    // Get episodes for this season
+    const episodes = await this.episodeModel.find({ seasonId }).sort({ episodeNumber: 1 }).exec();
+    if (!episodes.length) {
+      throw new Error(`No episodes found for season ${seasonId}`);
+    }
+
+    // Filter to video files only
+    const videoFiles = files.filter(
+      (f) => f.mimeType?.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov)$/i.test(f.name),
+    );
+
+    // Sort video files naturally (by episode number in filename)
+    videoFiles.sort((a, b) => {
+      const numA = this.extractEpisodeNumber(a.name);
+      const numB = this.extractEpisodeNumber(b.name);
+      return numA - numB;
+    });
+
+    let recovered = 0;
+    for (let i = 0; i < Math.min(episodes.length, videoFiles.length); i++) {
+      const episode = episodes[i];
+      const file = videoFiles[i];
+      try {
+        const workerUrl = `${this.workerUrl}/stream/${file.id}`;
+        episode.streamingSources = [
+          { label: 'HD', url: workerUrl, quality: '1080p', priority: 0 },
+        ] as any;
+        await episode.save();
+        recovered++;
+        this.logger.log(
+          `Recovered Ep${episode.episodeNumber}: ${file.name} → ${workerUrl}`,
+        );
+      } catch (err) {
+        errors.push(`Ep${episode.episodeNumber}: ${err.message}`);
+      }
+    }
+
+    if (videoFiles.length < episodes.length) {
+      errors.push(
+        `Only ${videoFiles.length} video files found for ${episodes.length} episodes`,
+      );
+    }
+
+    return { recovered, total: episodes.length, errors };
+  }
+
+  /** Extract episode number from a filename like "EP01.mp4" or "Episode 1.mkv" */
+  private extractEpisodeNumber(filename: string): number {
+    const match = filename.match(/(?:ep|episode|e)[\s._-]*(\d+)/i) || filename.match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 999;
   }
 }

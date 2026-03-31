@@ -266,6 +266,32 @@ async function streamFile(fileId, request) {
     redirect: 'follow',
   });
 
+  // Detect HTML error pages (quota exceeded, file not found, etc.)
+  const ct = driveRes.headers.get('Content-Type') || '';
+  if (ct.includes('text/html')) {
+    // Google returned an HTML error page instead of video data
+    const bodyText = await driveRes.text();
+    if (bodyText.includes('Quota exceeded') || bodyText.includes('you can\u0027t view')) {
+      return jsonResponse(
+        { error: 'Google Drive quota exceeded. Try again later.' },
+        503,
+      );
+    }
+    return jsonResponse(
+      { error: 'Google Drive returned an error page instead of video.' },
+      502,
+    );
+  }
+
+  // Reject suspiciously small files (likely error pages)
+  const contentLength = driveRes.headers.get('Content-Length');
+  if (contentLength && !rangeHeader && Number(contentLength) < 10000) {
+    return jsonResponse(
+      { error: `File too small (${contentLength} bytes) — likely not a valid video.` },
+      502,
+    );
+  }
+
   // Build response headers
   const responseHeaders = new Headers(CORS_HEADERS);
   responseHeaders.set('Accept-Ranges', 'bytes');

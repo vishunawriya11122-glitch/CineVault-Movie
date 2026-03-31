@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, UseGuards } from '@nestjs/common';
 import { BunnyService } from './bunny.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -39,5 +39,36 @@ export class BunnyController {
   async migrateAll() {
     await this.bunnyService.migrateAll();
     return { message: 'Migration started', status: this.bunnyService.getStatus() };
+  }
+
+  /** Revert all bad CDN migrations — removes bad CDN URLs and deletes garbage files */
+  @Post('revert-bad')
+  async revertBadMigrations() {
+    return this.bunnyService.revertBadMigrations();
+  }
+
+  /** Bulk-set Drive URLs for movies: [{ movieId, driveFileId, quality? }] */
+  @Post('set-drive-urls')
+  async bulkSetDriveUrls(
+    @Body() body: { mappings: { movieId: string; driveFileId: string; quality?: string }[] },
+  ) {
+    return this.bunnyService.bulkSetDriveUrls(body.mappings);
+  }
+
+  /** Bulk-set Drive URLs for episodes: [{ episodeId, driveFileId, quality? }] */
+  @Post('set-episode-drive-urls')
+  async bulkSetEpisodeDriveUrls(
+    @Body() body: { mappings: { episodeId: string; driveFileId: string; quality?: string }[] },
+  ) {
+    return this.bunnyService.bulkSetEpisodeDriveUrls(body.mappings);
+  }
+
+  /** Recover episode URLs from a Google Drive folder scan */
+  @Post('recover-episodes/:seasonId')
+  async recoverEpisodesFromFolder(
+    @Param('seasonId') seasonId: string,
+    @Body() body: { folderUrl: string },
+  ) {
+    return this.bunnyService.recoverEpisodesFromFolder(seasonId, body.folderUrl);
   }
 }
