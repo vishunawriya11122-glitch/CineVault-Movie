@@ -36,6 +36,12 @@ class HomeViewModel @Inject constructor(
     private val watchProgressRepository: WatchProgressRepository,
 ) : ViewModel() {
 
+    companion object {
+        /** True once the popup has been shown in this app session. Survives config changes. */
+        @Volatile
+        private var popupShownThisSession = false
+    }
+
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -142,7 +148,7 @@ class HomeViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         continueWatching = items,
-                        showContinuePopup = items.isNotEmpty(),
+                        showContinuePopup = items.isNotEmpty() && !popupShownThisSession,
                     )
                 }
             }
@@ -150,22 +156,21 @@ class HomeViewModel @Inject constructor(
     }
 
     fun dismissContinuePopup() {
+        popupShownThisSession = true
         _uiState.update { it.copy(showContinuePopup = false) }
     }
 
     fun removeContinueWatching(item: WatchProgressDto) {
         viewModelScope.launch {
-            val profileId = sessionManager.activeProfileId.firstOrNull() ?: return@launch
-            // Mark as completed to remove from continue watching
-            watchProgressRepository.updateProgress(
-                contentId = item.contentId,
-                profileId = profileId,
-                position = item.totalDuration.toLong(),
-                duration = item.totalDuration.toLong(),
-                contentTitle = item.contentTitle,
-                thumbnailUrl = item.thumbnailUrl,
-                contentType = item.contentType,
-            )
+            // Delete the watch progress record entirely — does NOT mark as completed
+            val id = item.id
+            if (id != null) {
+                try {
+                    api.deleteHistoryItem(id)
+                } catch (e: Exception) {
+                    Log.w("HomeViewModel", "Failed to delete watch progress: ${e.message}")
+                }
+            }
             // Remove from local list immediately
             _uiState.update {
                 val updated = it.continueWatching.filter { cw -> cw.contentId != item.contentId }
