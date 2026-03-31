@@ -9,7 +9,7 @@ const LIBRARY_ID = '628904';
 const LIBRARY_API_KEY = 'f4b47df9-f70d-4269-a2be2a035a23-a746-4436';
 const CDN_HOSTNAME = 'vz-f3b830f6-306.b-cdn.net';
 const STREAM_API = `https://video.bunnycdn.com/library/${LIBRARY_ID}`;
-const PARALLEL_CONCURRENCY = 5; // Upload 5 videos simultaneously
+const PARALLEL_CONCURRENCY = 3; // Stream-upload 3 videos simultaneously (download + upload per video)
 
 export interface StreamProgress {
   jobId: string;
@@ -156,6 +156,118 @@ export class BunnyService {
     }
   }
 
+  // ─── Stream Download → Upload (fixes Google Drive + Bunny) ──
+  //
+  // Instead of telling Bunny to fetch from a URL (which fails for Drive
+  // because of CF Worker 100MB limits and Drive download confirmation),
+  // our backend downloads the file and streams it to Bunny's upload endpoint.
+  //
+  async downloadAndUploadToBunny(
+    title: string,
+    sourceUrl: string,
+    collectionId?: string,
+  ): Promise<BunnyVideo> {
+    const video = await this.createVideo(title, collectionId);
+
+    try {
+      this.logger.log(`[Stream] Downloading: ${sourceUrl.slice(0, 120)}...`);
+
+      // Try the direct Google Drive download URL first for reliability
+      let downloadUrl = sourceUrl;
+      const driveFileId = this.extractDriveFileId(sourceUrl);
+      if (driveFileId) {
+        downloadUrl = `https://drive.usercontent.google.com/download?id=${driveFileId}&export=download&confirm=t`;
+      }
+
+      const downloadRes = await fetch(downloadUrl, {
+        redirect: 'follow',
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      });
+
+      if (!downloadRes.ok || !downloadRes.body) {
+        throw new Error(`Download failed: HTTP ${downloadRes.status}`);
+      }
+
+      // Safety check: ensure we got a video, not an HTML confirmation page
+      const ct = downloadRes.headers.get('content-type') || '';
+      if (ct.includes('text/html')) {
+        // Google Drive returned confirmation page — try worker fallback
+        this.logger.warn(`[Stream] Drive returned HTML, falling back to worker proxy...`);
+        const workerUrl = driveFileId ? `${this.workerUrl}/stream/${driveFileId}` : sourceUrl;
+        const fallbackRes = await fetch(workerUrl, {
+          redirect: 'follow',
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        });
+        if (!fallbackRes.ok || !fallbackRes.body) {
+          throw new Error(`Worker download also failed: HTTP ${fallbackRes.status}`);
+        }
+        const fbCt = fallbackRes.headers.get('content-type') || '';
+        if (fbCt.includes('text/html')) {
+          throw new Error('Cannot download file — Google Drive returned HTML page. Ensure file is public.');
+        }
+        return await this.streamTooBunnyUpload(video.guid, fallbackRes, video);
+      }
+
+      return await this.streamTooBunnyUpload(video.guid, downloadRes, video);
+    } catch (err) {
+      // Clean up the empty video entry on Bunny
+      try { await this.deleteVideo(video.guid); } catch {}
+      throw err;
+    }
+  }
+
+  private async streamTooBunnyUpload(
+    videoId: string,
+    downloadRes: Response,
+    video: BunnyVideo,
+  ): Promise<BunnyVideo> {
+    const uploadUrl = `${STREAM_API}/videos/${videoId}`;
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        AccessKey: LIBRARY_API_KEY,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: downloadRes.body as any,
+      // @ts-ignore — required for streaming request body in Node.js 18+
+      duplex: 'half',
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Bunny upload failed: ${uploadRes.status} ${errText}`);
+    }
+
+    this.logger.log(`[Stream] Upload complete → Bunny video ${videoId}`);
+    return video;
+  }
+
+  // ─── Delete all error/failed videos from Bunny library ──────
+
+  async cleanupFailedVideos(): Promise<{ deleted: number; errors: number }> {
+    const allVideos = await this.listVideos(1, 1000);
+    const failedVideos = allVideos.items.filter(
+      (v) => v.status === 5 || v.status === 6 || (v.status === 0 && v.storageSize === 0 && v.length === 0),
+    );
+
+    this.logger.log(`[Cleanup] Found ${failedVideos.length} failed/empty videos to delete`);
+
+    let deleted = 0;
+    let errors = 0;
+    for (const v of failedVideos) {
+      try {
+        await this.deleteVideo(v.guid);
+        deleted++;
+        this.logger.log(`[Cleanup] Deleted ${v.guid} (${v.title})`);
+      } catch (err) {
+        errors++;
+        this.logger.error(`[Cleanup] Failed to delete ${v.guid}: ${err.message}`);
+      }
+    }
+
+    return { deleted, errors };
+  }
+
   // ─── Collections ─────────────────────────────────────────────
 
   async createCollection(name: string): Promise<{ guid: string; name: string }> {
@@ -253,8 +365,8 @@ export class BunnyService {
 
     url = this.ensureStreamUrl(url);
 
-    this.logger.log(`Fetching movie "${movie.title}" to Bunny Stream from: ${url}`);
-    const video = await this.fetchVideoFromUrl(movie.title, url);
+    this.logger.log(`Uploading movie "${movie.title}" to Bunny Stream from: ${url}`);
+    const video = await this.downloadAndUploadToBunny(movie.title, url);
 
     movie.hlsUrl = this.hlsUrl(video.guid);
     movie.hlsStatus = 'processing';
@@ -340,9 +452,9 @@ export class BunnyService {
     url = this.ensureStreamUrl(url);
 
     const videoTitle = `${episode.title || 'Episode'} ${episode.episodeNumber}`;
-    this.logger.log(`Fetching episode "${videoTitle}" to Bunny Stream from: ${url}`);
+    this.logger.log(`Uploading episode "${videoTitle}" to Bunny Stream from: ${url}`);
 
-    const video = await this.fetchVideoFromUrl(videoTitle, url, collectionId);
+    const video = await this.downloadAndUploadToBunny(videoTitle, url, collectionId);
 
     episode.streamingSources = [
       { label: 'Auto (HLS)', url: this.hlsUrl(video.guid), quality: 'auto', priority: 0 } as any,
@@ -441,7 +553,7 @@ export class BunnyService {
 
       try {
         const streamUrl = `${this.workerUrl}/stream/${file.id}`;
-        const video = await this.fetchVideoFromUrl(`${epTitle} - Episode ${epNum}`, streamUrl, collectionId);
+        const video = await this.downloadAndUploadToBunny(`${epTitle} - Episode ${epNum}`, streamUrl, collectionId);
 
         const hlsLink = this.hlsUrl(video.guid);
         const thumb = this.thumbnailUrl(video.guid);
@@ -526,7 +638,7 @@ export class BunnyService {
       if (!sourceUrl) throw new Error('No source URL');
       sourceUrl = this.ensureStreamUrl(sourceUrl);
 
-      const video = await this.fetchVideoFromUrl(epLabel, sourceUrl, collectionId);
+      const video = await this.downloadAndUploadToBunny(epLabel, sourceUrl, collectionId);
 
       episode.streamingSources = [
         { label: 'Auto (HLS)', url: this.hlsUrl(video.guid), quality: 'auto', priority: 0 } as any,
@@ -631,7 +743,7 @@ export class BunnyService {
 
         try {
           const streamUrl = `${this.workerUrl}/stream/${ep.fileId}`;
-          const video = await this.fetchVideoFromUrl(
+          const video = await this.downloadAndUploadToBunny(
             `${ep.title} - S${scanned.seasonNumber}E${ep.episodeNumber}`,
             streamUrl,
             collectionId,
@@ -855,7 +967,7 @@ export class BunnyService {
       job.current = [...job.current.filter((c) => c !== epLabel), epLabel].slice(-PARALLEL_CONCURRENCY);
 
       const streamUrl = this.ensureStreamUrl(url);
-      const video = await this.fetchVideoFromUrl(epLabel, streamUrl, collectionId);
+      const video = await this.downloadAndUploadToBunny(epLabel, streamUrl, collectionId);
 
       episode.streamingSources = [
         { label: 'Auto (HLS)', url: this.hlsUrl(video.guid), quality: 'auto', priority: 0 } as any,

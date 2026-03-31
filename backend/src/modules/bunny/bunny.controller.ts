@@ -51,6 +51,15 @@ export class BunnyController {
     return this.bunnyService.getVideoStatus(videoId);
   }
 
+  // ─── Cleanup failed/error videos ────────────────────────────
+
+  @Post('stream/cleanup')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
+  async cleanupFailedVideos() {
+    return this.bunnyService.cleanupFailedVideos();
+  }
+
   // ─── Job / Progress Tracking ─────────────────────────────────
 
   @Get('stream/jobs')
