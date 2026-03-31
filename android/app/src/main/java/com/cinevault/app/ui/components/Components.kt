@@ -664,7 +664,7 @@ fun TrendingMovieCard(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .offset(x = (-4).dp, y = 12.dp)
-                    .graphicsLayer { rotationZ = 2f },
+                    .graphicsLayer { rotationZ = 1f },
                 style = TextStyle(
                     fontFamily = FontFamily.Serif,
                     fontSize = 100.sp,
@@ -685,7 +685,7 @@ fun TrendingMovieCard(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .offset(x = (-4).dp, y = 12.dp)
-                    .graphicsLayer { rotationZ = 2f },
+                    .graphicsLayer { rotationZ = 1f },
                 style = TextStyle(
                     fontSize = 100.sp,
                     fontFamily = FontFamily.Serif,
