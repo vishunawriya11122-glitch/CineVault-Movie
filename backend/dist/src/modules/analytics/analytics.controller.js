@@ -32,6 +32,18 @@ let AnalyticsController = class AnalyticsController {
     async getMostWatched(limit) {
         return this.analyticsService.getMostWatched(limit);
     }
+    async getViewAnalytics() {
+        return this.analyticsService.getViewAnalytics();
+    }
+    async getSeriesEpisodeAnalytics(seriesId) {
+        return this.analyticsService.getSeriesEpisodeAnalytics(seriesId);
+    }
+    async getTopSeries(limit) {
+        return this.analyticsService.getTopSeries(limit);
+    }
+    async resetAllViews() {
+        return this.analyticsService.resetAllViews();
+    }
 };
 exports.AnalyticsController = AnalyticsController;
 __decorate([
@@ -57,6 +69,36 @@ __decorate([
     __metadata("design:paramtypes", [Number]),
     __metadata("design:returntype", Promise)
 ], AnalyticsController.prototype, "getMostWatched", null);
+__decorate([
+    (0, common_1.Get)('views'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get view analytics breakdown (Admin)' }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "getViewAnalytics", null);
+__decorate([
+    (0, common_1.Get)('series/:seriesId/episodes'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get episode-level analytics for a series (Admin)' }),
+    __param(0, (0, common_1.Param)('seriesId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "getSeriesEpisodeAnalytics", null);
+__decorate([
+    (0, common_1.Get)('top-series'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get top series by episode views (Admin)' }),
+    __param(0, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "getTopSeries", null);
+__decorate([
+    (0, common_1.Post)('reset-views'),
+    (0, swagger_1.ApiOperation)({ summary: 'Reset ALL view counts to zero (Admin)' }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "resetAllViews", null);
 exports.AnalyticsController = AnalyticsController = __decorate([
     (0, swagger_1.ApiTags)('Analytics'),
     (0, swagger_1.ApiBearerAuth)(),

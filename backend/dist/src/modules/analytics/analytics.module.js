@@ -15,6 +15,8 @@ const user_schema_1 = require("../../schemas/user.schema");
 const movie_schema_1 = require("../../schemas/movie.schema");
 const watch_progress_schema_1 = require("../../schemas/watch-progress.schema");
 const review_schema_1 = require("../../schemas/review.schema");
+const content_view_schema_1 = require("../../schemas/content-view.schema");
+const series_schema_1 = require("../../schemas/series.schema");
 let AnalyticsModule = class AnalyticsModule {
 };
 exports.AnalyticsModule = AnalyticsModule;
@@ -26,6 +28,9 @@ exports.AnalyticsModule = AnalyticsModule = __decorate([
                 { name: movie_schema_1.Movie.name, schema: movie_schema_1.MovieSchema },
                 { name: watch_progress_schema_1.WatchProgress.name, schema: watch_progress_schema_1.WatchProgressSchema },
                 { name: review_schema_1.Review.name, schema: review_schema_1.ReviewSchema },
+                { name: content_view_schema_1.ContentView.name, schema: content_view_schema_1.ContentViewSchema },
+                { name: series_schema_1.Episode.name, schema: series_schema_1.EpisodeSchema },
+                { name: series_schema_1.Season.name, schema: series_schema_1.SeasonSchema },
             ]),
         ],
         controllers: [analytics_controller_1.AnalyticsController],

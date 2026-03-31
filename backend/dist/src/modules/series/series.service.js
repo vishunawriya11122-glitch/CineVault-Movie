@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const series_schema_1 = require("../../schemas/series.schema");
+const content_view_schema_1 = require("../../schemas/content-view.schema");
 function getDriveThumbnailUrl(url) {
     const patterns = [
         /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
@@ -65,9 +66,10 @@ function convertStreamingSources(data) {
     return data;
 }
 let SeriesService = class SeriesService {
-    constructor(seasonModel, episodeModel) {
+    constructor(seasonModel, episodeModel, contentViewModel) {
         this.seasonModel = seasonModel;
         this.episodeModel = episodeModel;
+        this.contentViewModel = contentViewModel;
     }
     async getSeasons(seriesId) {
         return this.seasonModel.find({
@@ -174,13 +176,38 @@ let SeriesService = class SeriesService {
         }
         return { updated, skipped };
     }
+    async trackEpisodeView(episodeId, userId, userEmail, deviceId) {
+        const episode = await this.episodeModel.findById(episodeId);
+        if (!episode)
+            throw new common_1.NotFoundException('Episode not found');
+        const existing = await this.contentViewModel.findOne({
+            userId: new mongoose_2.Types.ObjectId(userId),
+            contentId: episodeId,
+        });
+        if (existing)
+            return false;
+        const season = await this.seasonModel.findById(episode.seasonId);
+        await this.contentViewModel.create({
+            userId: new mongoose_2.Types.ObjectId(userId),
+            contentId: episodeId,
+            contentType: 'episode',
+            seriesId: season?.seriesId?.toString(),
+            seasonId: episode.seasonId?.toString(),
+            userEmail,
+            deviceId,
+        });
+        await this.episodeModel.findByIdAndUpdate(episodeId, { $inc: { viewCount: 1 } });
+        return true;
+    }
 };
 exports.SeriesService = SeriesService;
 exports.SeriesService = SeriesService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(series_schema_1.Season.name)),
     __param(1, (0, mongoose_1.InjectModel)(series_schema_1.Episode.name)),
+    __param(2, (0, mongoose_1.InjectModel)(content_view_schema_1.ContentView.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model,
         mongoose_2.Model])
 ], SeriesService);
 //# sourceMappingURL=series.service.js.map

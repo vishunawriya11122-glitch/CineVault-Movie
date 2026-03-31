@@ -18,6 +18,10 @@ export declare class MoviesController {
     getByType(type: string, limit?: number): Promise<import("../../schemas/movie.schema").MovieDocument[]>;
     findById(id: string): Promise<import("../../schemas/movie.schema").MovieDocument>;
     getRelated(id: string): Promise<import("../../schemas/movie.schema").MovieDocument[]>;
+    trackView(id: string, req: any): Promise<{
+        tracked: boolean;
+    }>;
+    findByIdAdmin(id: string): Promise<import("../../schemas/movie.schema").MovieDocument>;
     create(dto: CreateMovieDto): Promise<import("../../schemas/movie.schema").MovieDocument>;
     update(id: string, dto: UpdateMovieDto): Promise<import("../../schemas/movie.schema").MovieDocument>;
     delete(id: string): Promise<{

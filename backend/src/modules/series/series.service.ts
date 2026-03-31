@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Season, SeasonDocument, Episode, EpisodeDocument } from '../../schemas/series.schema';
+import { ContentView, ContentViewDocument } from '../../schemas/content-view.schema';
 
 /**
  * Derive a Google Drive thumbnail URL from any Drive sharing/streaming URL.
@@ -68,6 +69,7 @@ export class SeriesService {
   constructor(
     @InjectModel(Season.name) private seasonModel: Model<SeasonDocument>,
     @InjectModel(Episode.name) private episodeModel: Model<EpisodeDocument>,
+    @InjectModel(ContentView.name) private contentViewModel: Model<ContentViewDocument>,
   ) {}
 
   // Seasons
@@ -185,5 +187,37 @@ export class SeriesService {
       updated++;
     }
     return { updated, skipped };
+  }
+
+  /** Track a unique view per user per episode. Returns true if new view recorded. */
+  async trackEpisodeView(
+    episodeId: string,
+    userId: string,
+    userEmail?: string,
+    deviceId?: string,
+  ): Promise<boolean> {
+    const episode = await this.episodeModel.findById(episodeId);
+    if (!episode) throw new NotFoundException('Episode not found');
+
+    const existing = await this.contentViewModel.findOne({
+      userId: new Types.ObjectId(userId),
+      contentId: episodeId,
+    });
+    if (existing) return false;
+
+    // Find the season to get seriesId
+    const season = await this.seasonModel.findById(episode.seasonId);
+
+    await this.contentViewModel.create({
+      userId: new Types.ObjectId(userId),
+      contentId: episodeId,
+      contentType: 'episode',
+      seriesId: season?.seriesId?.toString(),
+      seasonId: episode.seasonId?.toString(),
+      userEmail,
+      deviceId,
+    });
+    await this.episodeModel.findByIdAndUpdate(episodeId, { $inc: { viewCount: 1 } });
+    return true;
   }
 }

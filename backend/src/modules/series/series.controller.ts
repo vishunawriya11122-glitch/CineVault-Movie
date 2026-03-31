@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SeriesService } from './series.service';
@@ -26,6 +26,19 @@ export class SeriesController {
   @ApiOperation({ summary: 'Get episode details' })
   async getEpisode(@Param('id') id: string) {
     return this.seriesService.getEpisode(id);
+  }
+
+  // Authenticated view tracking
+  @Post('episodes/:id/view')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Track a unique view for this episode (1 per user)' })
+  async trackEpisodeView(@Param('id') id: string, @Request() req: any) {
+    const userId = req.user.sub;
+    const userEmail = req.user.email;
+    const deviceId = req.body?.deviceId;
+    const isNew = await this.seriesService.trackEpisodeView(id, userId, userEmail, deviceId);
+    return { tracked: isNew };
   }
 
   // Admin

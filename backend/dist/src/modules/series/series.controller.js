@@ -32,6 +32,13 @@ let SeriesController = class SeriesController {
     async getEpisode(id) {
         return this.seriesService.getEpisode(id);
     }
+    async trackEpisodeView(id, req) {
+        const userId = req.user.sub;
+        const userEmail = req.user.email;
+        const deviceId = req.body?.deviceId;
+        const isNew = await this.seriesService.trackEpisodeView(id, userId, userEmail, deviceId);
+        return { tracked: isNew };
+    }
     async createSeason(seriesId, body) {
         return this.seriesService.createSeason({ ...body, seriesId });
     }
@@ -84,6 +91,17 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], SeriesController.prototype, "getEpisode", null);
+__decorate([
+    (0, common_1.Post)('episodes/:id/view'),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiOperation)({ summary: 'Track a unique view for this episode (1 per user)' }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], SeriesController.prototype, "trackEpisodeView", null);
 __decorate([
     (0, common_1.Post)(':seriesId/seasons'),
     (0, swagger_1.ApiBearerAuth)(),

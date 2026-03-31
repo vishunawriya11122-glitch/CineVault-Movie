@@ -1,9 +1,11 @@
 import { Model } from 'mongoose';
 import { Season, SeasonDocument, Episode, EpisodeDocument } from '../../schemas/series.schema';
+import { ContentViewDocument } from '../../schemas/content-view.schema';
 export declare class SeriesService {
     private seasonModel;
     private episodeModel;
-    constructor(seasonModel: Model<SeasonDocument>, episodeModel: Model<EpisodeDocument>);
+    private contentViewModel;
+    constructor(seasonModel: Model<SeasonDocument>, episodeModel: Model<EpisodeDocument>, contentViewModel: Model<ContentViewDocument>);
     getSeasons(seriesId: string): Promise<SeasonDocument[]>;
     createSeason(data: Partial<Season>): Promise<SeasonDocument>;
     updateSeason(id: string, data: Partial<Season>): Promise<SeasonDocument>;
@@ -18,4 +20,5 @@ export declare class SeriesService {
         updated: number;
         skipped: number;
     }>;
+    trackEpisodeView(episodeId: string, userId: string, userEmail?: string, deviceId?: string): Promise<boolean>;
 }

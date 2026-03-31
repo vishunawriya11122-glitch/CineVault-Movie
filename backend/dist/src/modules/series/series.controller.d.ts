@@ -5,6 +5,9 @@ export declare class SeriesController {
     getSeasons(seriesId: string): Promise<import("../../schemas/series.schema").SeasonDocument[]>;
     getEpisodes(seasonId: string): Promise<import("../../schemas/series.schema").EpisodeDocument[]>;
     getEpisode(id: string): Promise<import("../../schemas/series.schema").EpisodeDocument>;
+    trackEpisodeView(id: string, req: any): Promise<{
+        tracked: boolean;
+    }>;
     createSeason(seriesId: string, body: any): Promise<import("../../schemas/series.schema").SeasonDocument>;
     updateSeason(id: string, body: any): Promise<import("../../schemas/series.schema").SeasonDocument>;
     deleteSeason(id: string): Promise<{

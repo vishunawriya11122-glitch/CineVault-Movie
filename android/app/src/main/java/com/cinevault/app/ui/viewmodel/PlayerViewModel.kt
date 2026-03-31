@@ -106,6 +106,8 @@ class PlayerViewModel @Inject constructor(
                     // If episodeId is provided, load episode streaming sources instead
                     if (!currentEpisodeId.isNullOrBlank()) {
                         Log.d("CineVaultPlayer", "Loading episode: $currentEpisodeId")
+                        // Track unique episode view (fire and forget)
+                        launch { contentRepository.trackEpisodeView(currentEpisodeId!!) }
                         when (val epResult = contentRepository.getEpisode(currentEpisodeId!!)) {
                             is Result.Success -> {
                                 val episode = epResult.data
@@ -348,6 +350,8 @@ class PlayerViewModel @Inject constructor(
         saveProgressNow()
         currentEpisodeId = episode.id
         viewModelScope.launch {
+            // Track unique episode view (fire and forget)
+            launch { contentRepository.trackEpisodeView(episode.id) }
             _uiState.update {
                 it.copy(
                     currentEpisodeIndex = it.episodes.indexOf(episode).coerceAtLeast(0),

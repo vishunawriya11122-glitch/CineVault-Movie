@@ -105,6 +105,9 @@ interface CineVaultApi {
     @GET("movies/{id}/related")
     suspend fun getRelated(@Path("id") id: String): Response<List<MovieDto>>
 
+    @POST("movies/{id}/view")
+    suspend fun trackMovieView(@Path("id") id: String): Response<MessageResponse>
+
     // Series
     @GET("series/{seriesId}/seasons")
     suspend fun getSeasons(@Path("seriesId") seriesId: String): Response<List<SeasonDto>>
@@ -114,6 +117,9 @@ interface CineVaultApi {
 
     @GET("series/episodes/{id}")
     suspend fun getEpisode(@Path("id") id: String): Response<EpisodeDto>
+
+    @POST("series/episodes/{id}/view")
+    suspend fun trackEpisodeView(@Path("id") id: String): Response<MessageResponse>
 
     // Search
     @GET("search")

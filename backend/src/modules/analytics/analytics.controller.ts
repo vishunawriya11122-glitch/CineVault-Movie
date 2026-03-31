@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AnalyticsService } from './analytics.service';
@@ -29,5 +29,29 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Get most watched content (Admin)' })
   async getMostWatched(@Query('limit') limit?: number) {
     return this.analyticsService.getMostWatched(limit);
+  }
+
+  @Get('views')
+  @ApiOperation({ summary: 'Get view analytics breakdown (Admin)' })
+  async getViewAnalytics() {
+    return this.analyticsService.getViewAnalytics();
+  }
+
+  @Get('series/:seriesId/episodes')
+  @ApiOperation({ summary: 'Get episode-level analytics for a series (Admin)' })
+  async getSeriesEpisodeAnalytics(@Param('seriesId') seriesId: string) {
+    return this.analyticsService.getSeriesEpisodeAnalytics(seriesId);
+  }
+
+  @Get('top-series')
+  @ApiOperation({ summary: 'Get top series by episode views (Admin)' })
+  async getTopSeries(@Query('limit') limit?: number) {
+    return this.analyticsService.getTopSeries(limit);
+  }
+
+  @Post('reset-views')
+  @ApiOperation({ summary: 'Reset ALL view counts to zero (Admin)' })
+  async resetAllViews() {
+    return this.analyticsService.resetAllViews();
   }
 }

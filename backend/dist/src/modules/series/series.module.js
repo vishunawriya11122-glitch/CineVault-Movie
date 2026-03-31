@@ -12,6 +12,7 @@ const mongoose_1 = require("@nestjs/mongoose");
 const series_controller_1 = require("./series.controller");
 const series_service_1 = require("./series.service");
 const series_schema_1 = require("../../schemas/series.schema");
+const content_view_schema_1 = require("../../schemas/content-view.schema");
 let SeriesModule = class SeriesModule {
 };
 exports.SeriesModule = SeriesModule;
@@ -21,6 +22,7 @@ exports.SeriesModule = SeriesModule = __decorate([
             mongoose_1.MongooseModule.forFeature([
                 { name: series_schema_1.Season.name, schema: series_schema_1.SeasonSchema },
                 { name: series_schema_1.Episode.name, schema: series_schema_1.EpisodeSchema },
+                { name: content_view_schema_1.ContentView.name, schema: content_view_schema_1.ContentViewSchema },
             ]),
         ],
         controllers: [series_controller_1.SeriesController],

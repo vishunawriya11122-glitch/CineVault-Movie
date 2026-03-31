@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
@@ -67,7 +67,28 @@ export class MoviesController {
     return this.moviesService.getRelated(id);
   }
 
+  // Authenticated view tracking
+  @Post(':id/view')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Track a unique view for this movie (1 per user)' })
+  async trackView(@Param('id') id: string, @Request() req: any) {
+    const userId = req.user.sub;
+    const userEmail = req.user.email;
+    const deviceId = req.body?.deviceId;
+    const isNew = await this.moviesService.trackView(id, userId, userEmail, deviceId);
+    return { tracked: isNew };
+  }
+
   // Admin endpoints
+  @Get(':id/admin')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin', 'content_manager')
+  @ApiOperation({ summary: 'Get movie details for admin (no view increment)' })
+  async findByIdAdmin(@Param('id') id: string) {
+    return this.moviesService.findByIdAdmin(id);
+  }
   @Post()
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'), RolesGuard)

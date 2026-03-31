@@ -99,6 +99,14 @@ class ContentRepository @Inject constructor(private val api: CineVaultApi) {
         }
     }
 
+    suspend fun trackMovieView(movieId: String) {
+        try { api.trackMovieView(movieId) } catch (_: Exception) {}
+    }
+
+    suspend fun trackEpisodeView(episodeId: String) {
+        try { api.trackEpisodeView(episodeId) } catch (_: Exception) {}
+    }
+
     suspend fun search(
         query: String? = null,
         contentType: String? = null,

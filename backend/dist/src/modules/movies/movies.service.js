@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const movie_schema_1 = require("../../schemas/movie.schema");
+const content_view_schema_1 = require("../../schemas/content-view.schema");
 function toDirectDriveUrl(url) {
     const patterns = [
         /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
@@ -45,8 +46,9 @@ function convertMovieStreamingSources(movie) {
     return movie;
 }
 let MoviesService = class MoviesService {
-    constructor(movieModel) {
+    constructor(movieModel, contentViewModel) {
         this.movieModel = movieModel;
+        this.contentViewModel = contentViewModel;
     }
     async create(dto) {
         return this.movieModel.create(dto);
@@ -64,9 +66,33 @@ let MoviesService = class MoviesService {
         });
         if (!movie)
             throw new common_1.NotFoundException('Content not found');
-        movie.viewCount += 1;
-        await movie.save();
         return convertMovieStreamingSources(movie);
+    }
+    async findByIdAdmin(id) {
+        const movie = await this.movieModel.findById(id);
+        if (!movie)
+            throw new common_1.NotFoundException('Content not found');
+        return movie;
+    }
+    async trackView(movieId, userId, userEmail, deviceId) {
+        const movie = await this.movieModel.findById(movieId);
+        if (!movie)
+            throw new common_1.NotFoundException('Content not found');
+        const existing = await this.contentViewModel.findOne({
+            userId: new mongoose_2.Types.ObjectId(userId),
+            contentId: movieId,
+        });
+        if (existing)
+            return false;
+        await this.contentViewModel.create({
+            userId: new mongoose_2.Types.ObjectId(userId),
+            contentId: movieId,
+            contentType: 'movie',
+            userEmail,
+            deviceId,
+        });
+        await this.movieModel.findByIdAndUpdate(movieId, { $inc: { viewCount: 1 } });
+        return true;
     }
     async findAll(query) {
         const { page = 1, limit = 20, contentType, genre, language, year, rating, sort, status } = query;
@@ -193,6 +219,8 @@ exports.MoviesService = MoviesService;
 exports.MoviesService = MoviesService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(movie_schema_1.Movie.name)),
-    __metadata("design:paramtypes", [mongoose_2.Model])
+    __param(1, (0, mongoose_1.InjectModel)(content_view_schema_1.ContentView.name)),
+    __metadata("design:paramtypes", [mongoose_2.Model,
+        mongoose_2.Model])
 ], MoviesService);
 //# sourceMappingURL=movies.service.js.map

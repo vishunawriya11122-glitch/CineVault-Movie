@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Movie, MovieDocument, ContentStatus } from '../../schemas/movie.schema';
+import { ContentView, ContentViewDocument } from '../../schemas/content-view.schema';
 import { CreateMovieDto } from './dto/create-movie.dto';
 import { UpdateMovieDto } from './dto/update-movie.dto';
 import { QueryMoviesDto } from './dto/query-movies.dto';
@@ -42,7 +43,10 @@ function convertMovieStreamingSources(movie: MovieDocument): MovieDocument {
 
 @Injectable()
 export class MoviesService {
-  constructor(@InjectModel(Movie.name) private movieModel: Model<MovieDocument>) {}
+  constructor(
+    @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
+    @InjectModel(ContentView.name) private contentViewModel: Model<ContentViewDocument>,
+  ) {}
 
   async create(dto: CreateMovieDto): Promise<MovieDocument> {
     return this.movieModel.create(dto);
@@ -61,12 +65,37 @@ export class MoviesService {
     });
     if (!movie) throw new NotFoundException('Content not found');
 
-    // Increment view count
-    movie.viewCount += 1;
-    await movie.save();
-
     // Convert any Google Drive sharing links to direct-download URLs
     return convertMovieStreamingSources(movie);
+  }
+
+  /** Admin-only: fetch any movie by ID regardless of status, no view increment */
+  async findByIdAdmin(id: string): Promise<MovieDocument> {
+    const movie = await this.movieModel.findById(id);
+    if (!movie) throw new NotFoundException('Content not found');
+    return movie;
+  }
+
+  /** Track a unique view per user per movie. Returns true if new view recorded. */
+  async trackView(movieId: string, userId: string, userEmail?: string, deviceId?: string): Promise<boolean> {
+    const movie = await this.movieModel.findById(movieId);
+    if (!movie) throw new NotFoundException('Content not found');
+
+    const existing = await this.contentViewModel.findOne({
+      userId: new Types.ObjectId(userId),
+      contentId: movieId,
+    });
+    if (existing) return false; // already viewed
+
+    await this.contentViewModel.create({
+      userId: new Types.ObjectId(userId),
+      contentId: movieId,
+      contentType: 'movie',
+      userEmail,
+      deviceId,
+    });
+    await this.movieModel.findByIdAndUpdate(movieId, { $inc: { viewCount: 1 } });
+    return true;
   }
 
   async findAll(query: QueryMoviesDto): Promise<{ movies: MovieDocument[]; total: number; page: number; pages: number }> {

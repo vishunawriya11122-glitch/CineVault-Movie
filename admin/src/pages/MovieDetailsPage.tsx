@@ -14,7 +14,7 @@ export default function MovieDetailsPage() {
   const { data: movie, isLoading, isError } = useQuery({
     queryKey: ['movie', id],
     queryFn: async () => {
-      const { data } = await api.get(`/movies/${id}`);
+      const { data } = await api.get(`/movies/${id}/admin`);
       return data;
     },
     enabled: !!id,

@@ -50,6 +50,16 @@ let MoviesController = class MoviesController {
     async getRelated(id) {
         return this.moviesService.getRelated(id);
     }
+    async trackView(id, req) {
+        const userId = req.user.sub;
+        const userEmail = req.user.email;
+        const deviceId = req.body?.deviceId;
+        const isNew = await this.moviesService.trackView(id, userId, userEmail, deviceId);
+        return { tracked: isNew };
+    }
+    async findByIdAdmin(id) {
+        return this.moviesService.findByIdAdmin(id);
+    }
     async create(dto) {
         return this.moviesService.create(dto);
     }
@@ -129,6 +139,28 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], MoviesController.prototype, "getRelated", null);
+__decorate([
+    (0, common_1.Post)(':id/view'),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiOperation)({ summary: 'Track a unique view for this movie (1 per user)' }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], MoviesController.prototype, "trackView", null);
+__decorate([
+    (0, common_1.Get)(':id/admin'),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)('admin', 'content_manager'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get movie details for admin (no view increment)' }),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], MoviesController.prototype, "findByIdAdmin", null);
 __decorate([
     (0, common_1.Post)(),
     (0, swagger_1.ApiBearerAuth)(),

@@ -101,6 +101,9 @@ class MovieDetailViewModel @Inject constructor(
                         }
                     } ?: false
 
+                    // Track unique view for this movie (fire and forget)
+                    launch { contentRepository.trackMovieView(movieId) }
+
                     // For series, load the latest episode progress instead of series-level progress
                     val seriesTypes = listOf("web_series", "tv_show", "anime")
                     val watchProgress = if (profileId != null && movie.contentType in seriesTypes) {

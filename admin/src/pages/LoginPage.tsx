@@ -17,6 +17,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', { email, password });
+      if (data.user?.role !== 'admin' && data.user?.role !== 'content_manager') {
+        toast.error('Access denied. Admin accounts only.');
+        return;
+      }
       login(data.accessToken, data.refreshToken ?? null, data.user);
       toast.success('Welcome back!');
       navigate('/');
