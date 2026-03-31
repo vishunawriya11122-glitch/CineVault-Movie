@@ -1,9 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { Users, Film, Eye, TrendingUp, Tv, PlayCircle } from 'lucide-react';
+import { Users, Film, Eye, TrendingUp, Tv, PlayCircle, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
+import toast from 'react-hot-toast';
 import api from '../lib/api';
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
+  const [resetting, setResetting] = useState(false);
+
   const { data: stats, isLoading } = useQuery<any>({
     queryKey: ['dashboard'],
     queryFn: async () => {
@@ -49,6 +54,22 @@ export default function DashboardPage() {
     );
   }
 
+  const handleResetViews = async () => {
+    if (!confirm('Reset ALL view counts to zero? This cannot be undone.')) return;
+    setResetting(true);
+    try {
+      const { data } = await api.post('/analytics/reset-views');
+      toast.success(`Reset done: ${data.moviesReset} movies, ${data.episodesReset} episodes, ${data.viewsDeleted} view records cleared`);
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['viewAnalytics'] });
+      queryClient.invalidateQueries({ queryKey: ['topSeries'] });
+    } catch {
+      toast.error('Failed to reset views');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const statCards = [
     { label: 'Total Users', value: stats?.users?.total ?? 0, icon: Users, color: 'text-blue-400' },
     { label: 'Total Content', value: stats?.content?.total ?? 0, icon: Film, color: 'text-gold' },
@@ -60,7 +81,17 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <button
+          onClick={handleResetViews}
+          disabled={resetting}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/30 rounded-lg hover:bg-red-600/30 transition-colors disabled:opacity-50 text-sm"
+        >
+          <RotateCcw size={16} />
+          {resetting ? 'Resetting...' : 'Reset All Views'}
+        </button>
+      </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
