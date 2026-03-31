@@ -1450,11 +1450,196 @@ private fun EpisodeNumberSquare(
     }
 }
 
-// ── ExoPlayer Trailer Player ──
+// ── Smart Trailer Player (YouTube + ExoPlayer) ──
+
+/** Extract YouTube video ID from various URL formats */
+private fun extractYoutubeVideoId(url: String): String? {
+    val patterns = listOf(
+        Regex("youtube\\.com/watch\\?v=([a-zA-Z0-9_-]{11})"),
+        Regex("youtu\\.be/([a-zA-Z0-9_-]{11})"),
+        Regex("youtube\\.com/embed/([a-zA-Z0-9_-]{11})"),
+        Regex("youtube\\.com/v/([a-zA-Z0-9_-]{11})"),
+        Regex("youtube\\.com/shorts/([a-zA-Z0-9_-]{11})")
+    )
+    for (p in patterns) {
+        val match = p.find(url)
+        if (match != null) return match.groupValues[1]
+    }
+    return null
+}
+
+@Composable
+private fun TrailerPlayer(
+    trailerUrl: String,
+    modifier: Modifier = Modifier,
+) {
+    val youtubeId = remember(trailerUrl) { extractYoutubeVideoId(trailerUrl) }
+    if (youtubeId != null) {
+        YouTubeTrailerPlayer(videoId = youtubeId, modifier = modifier)
+    } else {
+        ExoTrailerPlayer(trailerUrl = trailerUrl, modifier = modifier)
+    }
+}
+
+// ── YouTube Trailer Player ──
+
+@Composable
+private fun YouTubeTrailerPlayer(
+    videoId: String,
+    modifier: Modifier = Modifier,
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isPlaying by remember { mutableStateOf(true) }
+    var is2x by remember { mutableStateOf(false) }
+    var showControls by remember { mutableStateOf(false) }
+    var ytPlayer by remember {
+        mutableStateOf<com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer?>(null)
+    }
+
+    // Auto-hide controls after 3 seconds
+    LaunchedEffect(showControls) {
+        if (showControls) {
+            kotlinx.coroutines.delay(3000)
+            showControls = false
+        }
+    }
+
+    Box(modifier = modifier) {
+        // YouTube player view
+        AndroidView(
+            factory = { ctx ->
+                com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView(ctx).apply {
+                    lifecycleOwner.lifecycle.addObserver(this)
+                    enableAutomaticInitialization = false
+
+                    val options = com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions.Builder()
+                        .controls(0)   // Hide YouTube controls (we draw our own)
+                        .autoplay(1)
+                        .rel(0)
+                        .build()
+
+                    initialize(
+                        object : com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener() {
+                            override fun onReady(youTubePlayer: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer) {
+                                ytPlayer = youTubePlayer
+                                youTubePlayer.loadVideo(videoId, 0f)
+                            }
+
+                            override fun onStateChange(
+                                youTubePlayer: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer,
+                                state: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState,
+                            ) {
+                                when (state) {
+                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.ENDED -> {
+                                        // Loop: restart video
+                                        youTubePlayer.seekTo(0f)
+                                        youTubePlayer.play()
+                                    }
+                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PLAYING -> {
+                                        isPlaying = true
+                                    }
+                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PAUSED -> {
+                                        isPlaying = false
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        },
+                        options
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Touch gesture layer: tap = toggle controls, long press & hold = 2x speed
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { showControls = !showControls },
+                        onLongPress = {
+                            is2x = true
+                            ytPlayer?.setPlaybackRate(
+                                com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlaybackRate.RATE_2
+                            )
+                        }
+                    )
+                }
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Release && is2x) {
+                                is2x = false
+                                ytPlayer?.setPlaybackRate(
+                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlaybackRate.RATE_1
+                                )
+                            }
+                        }
+                    }
+                }
+        )
+
+        // 2x speed indicator
+        if (is2x) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp)
+            ) {
+                Text(
+                    "2x",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        // Play/Pause button (center)
+        if (showControls) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.3f)),
+                contentAlignment = Alignment.Center
+            ) {
+                IconButton(
+                    onClick = {
+                        if (isPlaying) {
+                            ytPlayer?.pause()
+                            isPlaying = false
+                        } else {
+                            ytPlayer?.play()
+                            isPlaying = true
+                        }
+                    },
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── ExoPlayer Trailer Player (for Google Drive / direct URLs) ──
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun TrailerPlayer(
+private fun ExoTrailerPlayer(
     trailerUrl: String,
     modifier: Modifier = Modifier,
 ) {
