@@ -23,6 +23,7 @@ import { TranscodeModule } from './modules/transcode/transcode.module';
 import { AppVersionModule } from './modules/app-version/app-version.module';
 import { TmdbModule } from './modules/tmdb/tmdb.module';
 import { GdriveFolderModule } from './modules/gdrive-folder/gdrive-folder.module';
+import { BunnyModule } from './modules/bunny/bunny.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { GdriveFolderModule } from './modules/gdrive-folder/gdrive-folder.module
     AppVersionModule,
     TmdbModule,
     GdriveFolderModule,
+    BunnyModule,
   ],
 })
 export class AppModule {}
