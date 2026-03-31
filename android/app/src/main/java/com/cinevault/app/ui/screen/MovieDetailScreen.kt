@@ -1643,13 +1643,21 @@ private fun ExoTrailerPlayer(
     var is2x by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
 
-    // Convert Google Drive share links to direct download URL
+    // Convert Google Drive share links to Cloudflare Worker stream URL
     val playableUrl = remember(trailerUrl) {
-        val driveFileIdRegex = Regex("drive\\.google\\.com/file/d/([a-zA-Z0-9_-]+)")
-        val match = driveFileIdRegex.find(trailerUrl)
-        if (match != null) {
-            val fileId = match.groupValues[1]
-            "https://drive.usercontent.google.com/download?id=$fileId&export=download&authuser=0&confirm=t"
+        val drivePatterns = listOf(
+            Regex("drive\\.google\\.com/file/d/([a-zA-Z0-9_-]+)"),
+            Regex("drive\\.google\\.com/open\\?id=([a-zA-Z0-9_-]+)"),
+            Regex("drive\\.google\\.com/uc\\?.*id=([a-zA-Z0-9_-]+)"),
+            Regex("drive\\.usercontent\\.google\\.com/.*[?&]id=([a-zA-Z0-9_-]+)"),
+        )
+        var fileId: String? = null
+        for (p in drivePatterns) {
+            val match = p.find(trailerUrl)
+            if (match != null) { fileId = match.groupValues[1]; break }
+        }
+        if (fileId != null) {
+            "${com.cinevault.app.BuildConfig.DRIVE_WORKER_URL}/stream/$fileId"
         } else {
             trailerUrl
         }

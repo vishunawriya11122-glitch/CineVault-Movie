@@ -24,6 +24,7 @@ android {
         }
 
         buildConfigField("String", "BASE_URL", "\"https://cinevault-api-761880285456.asia-south1.run.app/api/v1/\"")
+        buildConfigField("String", "DRIVE_WORKER_URL", "\"https://drive-index.vishunawriya11122.workers.dev\"")
     }
 
     buildTypes {
@@ -32,6 +33,7 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "BASE_URL", "\"https://cinevault-api-761880285456.asia-south1.run.app/api/v1/\"")
+            buildConfigField("String", "DRIVE_WORKER_URL", "\"https://drive-index.vishunawriya11122.workers.dev\"")
         }
     }
 

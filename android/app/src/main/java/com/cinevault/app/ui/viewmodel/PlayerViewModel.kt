@@ -153,6 +153,10 @@ class PlayerViewModel @Inject constructor(
         Regex("drive\\.google\\.com/uc\\?.*id=([a-zA-Z0-9_-]+)").find(url)?.let {
             return it.groupValues[1]
         }
+        // drive.usercontent.google.com/download?id=FILE_ID
+        Regex("drive\\.usercontent\\.google\\.com/.*[?&]id=([a-zA-Z0-9_-]+)").find(url)?.let {
+            return it.groupValues[1]
+        }
         // /uc?export=download&id=FILE_ID (another variant)
         Regex("[?&]id=([a-zA-Z0-9_-]+)").find(url)?.let {
             if (url.contains("drive.google.com") || url.contains("docs.google.com")) {
@@ -163,12 +167,14 @@ class PlayerViewModel @Inject constructor(
     }
 
     /**
-     * 3-layer fallback URL set for a Google Drive file ID.
-     *   Layer 1 — drive.usercontent.google.com download (primary, best redirect handling)
-     *   Layer 2 — docs.google.com uc endpoint (classic fallback)
+     * 4-layer fallback URL set for a Google Drive file ID.
+     *   Layer 0 — Cloudflare Worker proxy (primary, handles confirmation pages + streams bytes)
+     *   Layer 1 — drive.usercontent.google.com download
+     *   Layer 2 — docs.google.com uc endpoint
      *   Layer 3 — drive.google.com uc endpoint (last resort)
      */
     private fun driveStreamingLayers(fileId: String): List<String> = listOf(
+        "${com.cinevault.app.BuildConfig.DRIVE_WORKER_URL}/stream/$fileId",
         "https://drive.usercontent.google.com/download?id=$fileId&export=download&confirm=t",
         "https://docs.google.com/uc?export=download&id=$fileId&confirm=t",
         "https://drive.google.com/uc?export=download&id=$fileId&confirm=t",
