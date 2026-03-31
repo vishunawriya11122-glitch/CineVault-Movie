@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Movie, MovieDocument } from '../../schemas/movie.schema';
 import { Season, SeasonDocument, Episode, EpisodeDocument } from '../../schemas/series.schema';
 
@@ -9,13 +9,20 @@ const LIBRARY_ID = '628904';
 const LIBRARY_API_KEY = 'f4b47df9-f70d-4269-a2be2a035a23-a746-4436';
 const CDN_HOSTNAME = 'vz-f3b830f6-306.b-cdn.net';
 const STREAM_API = `https://video.bunnycdn.com/library/${LIBRARY_ID}`;
+const PARALLEL_CONCURRENCY = 5; // Upload 5 videos simultaneously
 
 export interface StreamProgress {
+  jobId: string;
+  type: 'import' | 'migrate' | 'series-import' | 'bulk-upload';
+  label: string;
   total: number;
+  uploaded: number;
+  transcoding: number;
   completed: number;
   failed: number;
-  current: string | null;
+  current: string[];
   running: boolean;
+  startedAt: number;
   results: { id: string; title: string; status: string; error?: string; bunnyVideoId?: string }[];
 }
 
@@ -33,19 +40,27 @@ export interface BunnyVideo {
   thumbnailFileName: string;
 }
 
+interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
+interface ScannedSeason {
+  seasonNumber: number;
+  folderName?: string;
+  folderId?: string;
+  episodes: { fileId: string; fileName: string; episodeNumber: number; title: string }[];
+}
+
 @Injectable()
 export class BunnyService {
   private readonly logger = new Logger(BunnyService.name);
   private readonly workerUrl = 'https://drive-index.vishunawriya11122.workers.dev';
 
-  private progress: StreamProgress = {
-    total: 0,
-    completed: 0,
-    failed: 0,
-    current: null,
-    running: false,
-    results: [],
-  };
+  // Multi-job progress tracking
+  private jobs = new Map<string, StreamProgress>();
+  private readonly MAX_JOBS_HISTORY = 20;
 
   constructor(
     @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
@@ -99,38 +114,32 @@ export class BunnyService {
 
   // ─── Video CRUD ──────────────────────────────────────────────
 
-  /** Create a blank video entry (to upload binary later) */
   async createVideo(title: string, collectionId?: string): Promise<BunnyVideo> {
     const body: any = { title };
     if (collectionId) body.collectionId = collectionId;
     return this.streamApi<BunnyVideo>('/videos', 'POST', body);
   }
 
-  /** Fetch a video from a URL — Bunny downloads & auto-transcodes */
   async fetchVideoFromUrl(title: string, url: string, collectionId?: string): Promise<BunnyVideo> {
     const body: any = { url, title };
     if (collectionId) body.collectionId = collectionId;
     return this.streamApi<BunnyVideo>('/videos/fetch', 'POST', body);
   }
 
-  /** Get video status (encoding progress, available resolutions) */
   async getVideoStatus(videoId: string): Promise<BunnyVideo> {
     return this.streamApi<BunnyVideo>(`/videos/${videoId}`);
   }
 
-  /** List all videos in the library */
   async listVideos(page = 1, perPage = 100, search?: string): Promise<{ totalItems: number; items: BunnyVideo[] }> {
     let path = `/videos?page=${page}&itemsPerPage=${perPage}&orderBy=date`;
     if (search) path += `&search=${encodeURIComponent(search)}`;
     return this.streamApi(path);
   }
 
-  /** Delete a video from Bunny Stream */
   async deleteVideo(videoId: string): Promise<void> {
     await this.streamApi(`/videos/${videoId}`, 'DELETE');
   }
 
-  /** Upload binary video data to an existing video entry */
   async uploadVideoBinary(videoId: string, fileBuffer: Buffer): Promise<void> {
     const url = `${STREAM_API}/videos/${videoId}`;
     const res = await fetch(url, {
@@ -157,37 +166,96 @@ export class BunnyService {
     return this.streamApi('/collections');
   }
 
-  // ─── Progress Tracking ───────────────────────────────────────
+  // ─── Parallel Execution Helper ───────────────────────────────
 
-  getProgress(): StreamProgress {
-    return { ...this.progress };
+  private async runParallel<T, R>(
+    items: T[],
+    fn: (item: T, index: number) => Promise<R>,
+    concurrency: number = PARALLEL_CONCURRENCY,
+  ): Promise<{ results: (R | Error)[]; succeeded: number; failed: number }> {
+    const results: (R | Error)[] = new Array(items.length);
+    let succeeded = 0;
+    let failed = 0;
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (nextIndex < items.length) {
+        const idx = nextIndex++;
+        try {
+          results[idx] = await fn(items[idx], idx);
+          succeeded++;
+        } catch (err) {
+          results[idx] = err instanceof Error ? err : new Error(String(err));
+          failed++;
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+    await Promise.all(workers);
+
+    return { results, succeeded, failed };
+  }
+
+  // ─── Multi-Job Progress Tracking ─────────────────────────────
+
+  private createJob(type: StreamProgress['type'], label: string, total: number): StreamProgress {
+    // Clean up old finished jobs if too many
+    if (this.jobs.size >= this.MAX_JOBS_HISTORY) {
+      const finished = [...this.jobs.entries()]
+        .filter(([, j]) => !j.running)
+        .sort((a, b) => a[1].startedAt - b[1].startedAt);
+      for (const [key] of finished.slice(0, finished.length - 5)) {
+        this.jobs.delete(key);
+      }
+    }
+
+    const jobId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const job: StreamProgress = {
+      jobId,
+      type,
+      label,
+      total,
+      uploaded: 0,
+      transcoding: 0,
+      completed: 0,
+      failed: 0,
+      current: [],
+      running: true,
+      startedAt: Date.now(),
+      results: [],
+    };
+    this.jobs.set(jobId, job);
+    return job;
+  }
+
+  getProgress(jobId?: string): StreamProgress | StreamProgress[] | null {
+    if (jobId) return this.jobs.get(jobId) || null;
+    // Return all jobs sorted by most recent
+    return [...this.jobs.values()].sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  getActiveJobs(): StreamProgress[] {
+    return [...this.jobs.values()].filter((j) => j.running);
   }
 
   // ─── Movie Upload to Bunny Stream ───────────────────────────
 
-  /**
-   * Upload a movie to Bunny Stream by fetching from an existing URL.
-   * Sets hlsUrl + hlsStatus on the movie, plus streaming sources for each resolution.
-   */
   async uploadMovieFromUrl(movieId: string, sourceUrl?: string): Promise<{ bunnyVideoId: string; hlsUrl: string }> {
     const movie = await this.movieModel.findById(movieId);
     if (!movie) throw new Error('Movie not found');
 
-    // Use provided URL or first streaming source
     let url = sourceUrl;
     if (!url && movie.streamingSources?.length) {
       url = movie.streamingSources[0].url;
     }
     if (!url) throw new Error('No video URL available for this movie');
 
-    // If URL is a Drive/Worker URL, ensure it goes through the worker
     url = this.ensureStreamUrl(url);
 
     this.logger.log(`Fetching movie "${movie.title}" to Bunny Stream from: ${url}`);
-
     const video = await this.fetchVideoFromUrl(movie.title, url);
 
-    // Update movie with HLS URL
     movie.hlsUrl = this.hlsUrl(video.guid);
     movie.hlsStatus = 'processing';
     movie.streamingSources = [
@@ -199,9 +267,6 @@ export class BunnyService {
     return { bunnyVideoId: video.guid, hlsUrl: this.hlsUrl(video.guid) };
   }
 
-  /**
-   * Upload a movie from a direct file buffer (multipart upload from admin).
-   */
   async uploadMovieFromFile(movieId: string, fileBuffer: Buffer, filename: string): Promise<{ bunnyVideoId: string; hlsUrl: string }> {
     const movie = await this.movieModel.findById(movieId);
     if (!movie) throw new Error('Movie not found');
@@ -220,7 +285,6 @@ export class BunnyService {
     return { bunnyVideoId: video.guid, hlsUrl: this.hlsUrl(video.guid) };
   }
 
-  /** Check transcoding status for a movie and update hlsStatus */
   async checkMovieTranscoding(movieId: string): Promise<{
     status: number;
     encodeProgress: number;
@@ -237,7 +301,6 @@ export class BunnyService {
     let hlsStatus = movie.hlsStatus;
     if (video.status === 4) {
       hlsStatus = 'completed';
-      // Add per-resolution streaming sources
       movie.streamingSources = this.buildStreamingSources(videoId, video.availableResolutions);
     } else if (video.status === 5 || video.status === 6) {
       hlsStatus = 'failed';
@@ -260,9 +323,6 @@ export class BunnyService {
 
   // ─── Episode Upload to Bunny Stream ──────────────────────────
 
-  /**
-   * Upload a single episode to Bunny Stream from a URL.
-   */
   async uploadEpisodeFromUrl(
     episodeId: string,
     sourceUrl?: string,
@@ -295,9 +355,6 @@ export class BunnyService {
     return { bunnyVideoId: video.guid, hlsUrl: this.hlsUrl(video.guid) };
   }
 
-  /**
-   * Upload episode from file buffer.
-   */
   async uploadEpisodeFromFile(
     episodeId: string,
     fileBuffer: Buffer,
@@ -322,36 +379,24 @@ export class BunnyService {
     return { bunnyVideoId: video.guid, hlsUrl: this.hlsUrl(video.guid) };
   }
 
-  // ─── Season / Folder Import ──────────────────────────────────
+  // ─── Season / Folder Import (PARALLEL) ──────────────────────
 
-  /**
-   * Import all episodes from a Google Drive folder into Bunny Stream.
-   * Auto-detects episode files, creates episodes, and starts transcoding.
-   * Runs in background — poll getProgress() for status.
-   */
   async importSeasonFromFolder(
     seasonId: string,
     folderUrl: string,
-  ): Promise<{ message: string }> {
-    if (this.progress.running) {
-      throw new Error('An import is already in progress');
-    }
-
+  ): Promise<{ jobId: string; message: string }> {
     const season = await this.seasonModel.findById(seasonId);
     if (!season) throw new Error('Season not found');
 
-    // Extract folder ID
     const folderIdMatch = folderUrl.match(/folders?\/([\w-]+)/);
     if (!folderIdMatch) throw new Error('Invalid Google Drive folder URL');
     const folderId = folderIdMatch[1];
 
-    // List folder via Worker
     const listUrl = `${this.workerUrl}/list?id=${folderId}`;
     const listRes = await fetch(listUrl);
     if (!listRes.ok) throw new Error(`Folder scan failed: ${listRes.status}`);
-    const files: { id: string; name: string; mimeType: string }[] = await listRes.json() as any;
+    const files: DriveFile[] = await listRes.json() as any;
 
-    // Filter to video files
     const videoFiles = files.filter(
       (f) => f.mimeType?.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov)$/i.test(f.name),
     );
@@ -359,7 +404,6 @@ export class BunnyService {
 
     if (!videoFiles.length) throw new Error('No video files found in folder');
 
-    // Create a collection for this season
     const series = await this.movieModel.findById(season.seriesId);
     const collectionName = `${series?.title || 'Series'} - Season ${season.seasonNumber}`;
     let collectionId: string | undefined;
@@ -370,57 +414,39 @@ export class BunnyService {
       this.logger.warn(`Could not create collection: ${err.message}`);
     }
 
-    // Initialize progress
-    this.progress = {
-      total: videoFiles.length,
-      completed: 0,
-      failed: 0,
-      current: null,
-      running: true,
-      results: [],
-    };
+    const job = this.createJob('import', `Season ${season.seasonNumber} Import`, videoFiles.length);
 
-    // Run import in background
-    this.runFolderImport(seasonId, videoFiles, collectionId).catch((err) => {
+    // Run in background with parallel processing
+    this.runFolderImportParallel(job, seasonId, videoFiles, collectionId).catch((err) => {
       this.logger.error(`Folder import crashed: ${err.message}`);
-      this.progress.running = false;
+      job.running = false;
     });
 
-    return { message: `Importing ${videoFiles.length} episodes to Bunny Stream` };
+    return { jobId: job.jobId, message: `Importing ${videoFiles.length} episodes in parallel (${PARALLEL_CONCURRENCY} at a time)` };
   }
 
-  private async runFolderImport(
+  private async runFolderImportParallel(
+    job: StreamProgress,
     seasonId: string,
-    videoFiles: { id: string; name: string; mimeType: string }[],
+    videoFiles: DriveFile[],
     collectionId?: string,
   ): Promise<void> {
-    // Get existing episodes for this season
     const existingEpisodes = await this.episodeModel.find({ seasonId }).sort({ episodeNumber: 1 }).exec();
     const existingNumbers = new Set(existingEpisodes.map((e) => e.episodeNumber));
 
-    for (let i = 0; i < videoFiles.length; i++) {
-      const file = videoFiles[i];
-      const epNum = this.extractEpisodeNumber(file.name) || (i + 1);
+    await this.runParallel(videoFiles, async (file, index) => {
+      const epNum = this.extractEpisodeNumber(file.name) || (index + 1);
       const epTitle = this.cleanEpisodeTitle(file.name, epNum);
-      this.progress.current = `Episode ${epNum}: ${file.name}`;
+      job.current = [...job.current.filter((c) => c !== `Episode ${epNum}`), `Episode ${epNum}`].slice(-PARALLEL_CONCURRENCY);
 
       try {
-        // Build stream URL from Drive file ID
         const streamUrl = `${this.workerUrl}/stream/${file.id}`;
-
-        // Fetch to Bunny Stream (Bunny downloads from URL)
-        const video = await this.fetchVideoFromUrl(
-          `${epTitle} - Episode ${epNum}`,
-          streamUrl,
-          collectionId,
-        );
+        const video = await this.fetchVideoFromUrl(`${epTitle} - Episode ${epNum}`, streamUrl, collectionId);
 
         const hlsLink = this.hlsUrl(video.guid);
         const thumb = this.thumbnailUrl(video.guid);
 
-        // Create or update episode in DB
         if (existingNumbers.has(epNum)) {
-          // Update existing episode
           await this.episodeModel.findOneAndUpdate(
             { seasonId, episodeNumber: epNum },
             {
@@ -429,9 +455,8 @@ export class BunnyService {
             },
           );
         } else {
-          // Create new episode
           await this.episodeModel.create({
-            seasonId,
+            seasonId: new Types.ObjectId(seasonId),
             episodeNumber: epNum,
             title: epTitle,
             streamingSources: [{ label: 'Auto (HLS)', url: hlsLink, quality: 'auto', priority: 0 }],
@@ -439,48 +464,30 @@ export class BunnyService {
           });
         }
 
-        // Update season episode count
-        const epCount = await this.episodeModel.countDocuments({ seasonId });
-        await this.seasonModel.findByIdAndUpdate(seasonId, { episodeCount: epCount });
-
-        this.progress.completed++;
-        this.progress.results.push({
-          id: video.guid,
-          title: `Episode ${epNum}`,
-          status: 'success',
-          bunnyVideoId: video.guid,
-        });
-
+        job.uploaded++;
+        job.transcoding++;
+        job.results.push({ id: video.guid, title: `Episode ${epNum}`, status: 'success', bunnyVideoId: video.guid });
         this.logger.log(`Episode ${epNum} → Bunny video ${video.guid}`);
       } catch (err) {
-        this.progress.failed++;
-        this.progress.completed++;
-        this.progress.results.push({
-          id: file.id,
-          title: `Episode ${epNum}`,
-          status: 'failed',
-          error: err.message,
-        });
+        job.failed++;
+        job.results.push({ id: file.id, title: `Episode ${epNum}`, status: 'failed', error: err.message });
         this.logger.error(`Episode ${epNum} failed: ${err.message}`);
       }
-    }
+    }, PARALLEL_CONCURRENCY);
 
-    this.progress.current = null;
-    this.progress.running = false;
-    this.logger.log(
-      `Folder import complete: ${this.progress.completed - this.progress.failed}/${this.progress.total} succeeded`,
-    );
+    // Update season episode count
+    const epCount = await this.episodeModel.countDocuments({ seasonId });
+    await this.seasonModel.findByIdAndUpdate(seasonId, { episodeCount: epCount });
+
+    job.current = [];
+    job.running = false;
+    job.completed = job.uploaded;
+    this.logger.log(`Folder import complete: ${job.uploaded}/${job.total} succeeded, ${job.failed} failed`);
   }
 
-  /**
-   * Migrate existing season episodes (that already have CDN/Worker URLs) to Bunny Stream.
-   * Re-fetches each episode's video to Bunny for native HLS transcoding.
-   */
-  async migrateSeasonToBunnyStream(seasonId: string): Promise<{ message: string }> {
-    if (this.progress.running) {
-      throw new Error('An operation is already in progress');
-    }
+  // ─── Season Migration (PARALLEL) ────────────────────────────
 
+  async migrateSeasonToBunnyStream(seasonId: string): Promise<{ jobId: string; message: string }> {
     const episodes = await this.episodeModel.find({ seasonId }).sort({ episodeNumber: 1 }).exec();
     if (!episodes.length) throw new Error('No episodes found for this season');
 
@@ -496,74 +503,380 @@ export class BunnyService {
       this.logger.warn(`Could not create collection: ${err.message}`);
     }
 
-    this.progress = {
-      total: episodes.length,
-      completed: 0,
-      failed: 0,
-      current: null,
-      running: true,
-      results: [],
-    };
+    const job = this.createJob('migrate', `Season ${season?.seasonNumber} Migration`, episodes.length);
 
-    this.runSeasonMigration(episodes, collectionId).catch((err) => {
+    this.runSeasonMigrationParallel(job, episodes, collectionId).catch((err) => {
       this.logger.error(`Season migration crashed: ${err.message}`);
-      this.progress.running = false;
+      job.running = false;
     });
 
-    return { message: `Migrating ${episodes.length} episodes to Bunny Stream` };
+    return { jobId: job.jobId, message: `Migrating ${episodes.length} episodes in parallel` };
   }
 
-  private async runSeasonMigration(
+  private async runSeasonMigrationParallel(
+    job: StreamProgress,
     episodes: EpisodeDocument[],
     collectionId?: string,
   ): Promise<void> {
-    for (const episode of episodes) {
+    await this.runParallel(episodes, async (episode) => {
       const epLabel = `${episode.title || 'Episode'} ${episode.episodeNumber}`;
-      this.progress.current = epLabel;
+      job.current = [...job.current.filter((c) => c !== epLabel), epLabel].slice(-PARALLEL_CONCURRENCY);
 
+      let sourceUrl = episode.streamingSources?.[0]?.url;
+      if (!sourceUrl) throw new Error('No source URL');
+      sourceUrl = this.ensureStreamUrl(sourceUrl);
+
+      const video = await this.fetchVideoFromUrl(epLabel, sourceUrl, collectionId);
+
+      episode.streamingSources = [
+        { label: 'Auto (HLS)', url: this.hlsUrl(video.guid), quality: 'auto', priority: 0 } as any,
+      ];
+      if (!episode.thumbnailUrl || episode.thumbnailUrl.includes('drive.google.com')) {
+        episode.thumbnailUrl = this.thumbnailUrl(video.guid);
+      }
+      await episode.save();
+
+      job.uploaded++;
+      job.transcoding++;
+      job.results.push({ id: episode._id.toString(), title: epLabel, status: 'success', bunnyVideoId: video.guid });
+    }, PARALLEL_CONCURRENCY);
+
+    job.current = [];
+    job.running = false;
+    job.completed = job.uploaded;
+  }
+
+  // ═══ FULL SERIES IMPORT PIPELINE ═════════════════════════════
+  //
+  // ONE link → scan folder → detect seasons → detect episodes
+  // → create DB entries → upload ALL to Bunny Stream (parallel)
+  // → auto-transcode → ready to stream
+  //
+
+  async importFullSeries(
+    seriesId: string,
+    folderUrl: string,
+  ): Promise<{ jobId: string; message: string; seasons: number; episodes: number }> {
+    const series = await this.movieModel.findById(seriesId);
+    if (!series) throw new Error('Series not found');
+
+    // Step 1: Scan folder structure
+    this.logger.log(`[Full Import] Scanning folder for "${series.title}"...`);
+    const scannedSeasons = await this.scanDriveFolder(folderUrl);
+
+    const totalEpisodes = scannedSeasons.reduce((sum, s) => sum + s.episodes.length, 0);
+    if (totalEpisodes === 0) throw new Error('No video files found in folder');
+
+    const job = this.createJob(
+      'series-import',
+      `${series.title} — Full Import`,
+      totalEpisodes,
+    );
+
+    // Step 2: Run full pipeline in background
+    this.runFullSeriesImport(job, seriesId, series.title, scannedSeasons).catch((err) => {
+      this.logger.error(`Full series import crashed: ${err.message}`);
+      job.running = false;
+    });
+
+    return {
+      jobId: job.jobId,
+      message: `Importing ${scannedSeasons.length} season(s) with ${totalEpisodes} episode(s) — parallel upload + auto-transcoding`,
+      seasons: scannedSeasons.length,
+      episodes: totalEpisodes,
+    };
+  }
+
+  private async runFullSeriesImport(
+    job: StreamProgress,
+    seriesId: string,
+    seriesTitle: string,
+    scannedSeasons: ScannedSeason[],
+  ): Promise<void> {
+    for (const scanned of scannedSeasons) {
+      // Step 2a: Create or find season
+      let season = await this.seasonModel.findOne({
+        seriesId: new Types.ObjectId(seriesId),
+        seasonNumber: scanned.seasonNumber,
+      });
+      if (!season) {
+        season = await this.seasonModel.create({
+          seriesId: new Types.ObjectId(seriesId),
+          seasonNumber: scanned.seasonNumber,
+          title: scanned.folderName || `Season ${scanned.seasonNumber}`,
+          episodeCount: 0,
+        });
+        this.logger.log(`[Full Import] Created Season ${scanned.seasonNumber}`);
+      }
+      const seasonId = season._id.toString();
+
+      // Step 2b: Create Bunny collection for this season
+      const collectionName = `${seriesTitle} - Season ${scanned.seasonNumber}`;
+      let collectionId: string | undefined;
       try {
-        let sourceUrl = episode.streamingSources?.[0]?.url;
-        if (!sourceUrl) {
-          throw new Error('No source URL');
-        }
-        sourceUrl = this.ensureStreamUrl(sourceUrl);
-
-        const video = await this.fetchVideoFromUrl(epLabel, sourceUrl, collectionId);
-
-        episode.streamingSources = [
-          { label: 'Auto (HLS)', url: this.hlsUrl(video.guid), quality: 'auto', priority: 0 } as any,
-        ];
-        if (!episode.thumbnailUrl || episode.thumbnailUrl.includes('drive.google.com')) {
-          episode.thumbnailUrl = this.thumbnailUrl(video.guid);
-        }
-        await episode.save();
-
-        this.progress.completed++;
-        this.progress.results.push({
-          id: episode._id.toString(),
-          title: epLabel,
-          status: 'success',
-          bunnyVideoId: video.guid,
-        });
+        const col = await this.createCollection(collectionName);
+        collectionId = col.guid;
       } catch (err) {
-        this.progress.failed++;
-        this.progress.completed++;
-        this.progress.results.push({
-          id: episode._id.toString(),
-          title: epLabel,
-          status: 'failed',
-          error: err.message,
-        });
+        this.logger.warn(`Could not create collection: ${err.message}`);
+      }
+
+      // Step 2c: Get existing episodes
+      const existingEpisodes = await this.episodeModel.find({ seasonId: season._id }).exec();
+      const existingNumbers = new Set(existingEpisodes.map((e) => e.episodeNumber));
+
+      // Step 2d: Upload all episodes for this season IN PARALLEL
+      await this.runParallel(scanned.episodes, async (ep) => {
+        const epLabel = `S${scanned.seasonNumber}E${ep.episodeNumber}: ${ep.title}`;
+        job.current = [...job.current.filter((c) => c !== epLabel), epLabel].slice(-PARALLEL_CONCURRENCY);
+
+        try {
+          const streamUrl = `${this.workerUrl}/stream/${ep.fileId}`;
+          const video = await this.fetchVideoFromUrl(
+            `${ep.title} - S${scanned.seasonNumber}E${ep.episodeNumber}`,
+            streamUrl,
+            collectionId,
+          );
+
+          const hlsLink = this.hlsUrl(video.guid);
+          const thumb = this.thumbnailUrl(video.guid);
+
+          // Create or update episode in DB
+          if (existingNumbers.has(ep.episodeNumber)) {
+            await this.episodeModel.findOneAndUpdate(
+              { seasonId: season._id, episodeNumber: ep.episodeNumber },
+              {
+                title: ep.title,
+                streamingSources: [{ label: 'Auto (HLS)', url: hlsLink, quality: 'auto', priority: 0 }],
+                thumbnailUrl: thumb,
+              },
+            );
+          } else {
+            await this.episodeModel.create({
+              seasonId: season._id,
+              episodeNumber: ep.episodeNumber,
+              title: ep.title,
+              streamingSources: [{ label: 'Auto (HLS)', url: hlsLink, quality: 'auto', priority: 0 }],
+              thumbnailUrl: thumb,
+            });
+          }
+
+          job.uploaded++;
+          job.transcoding++;
+          job.results.push({ id: video.guid, title: epLabel, status: 'success', bunnyVideoId: video.guid });
+          this.logger.log(`${epLabel} → Bunny video ${video.guid}`);
+        } catch (err) {
+          job.failed++;
+          job.results.push({ id: ep.fileId, title: epLabel, status: 'failed', error: err.message });
+          this.logger.error(`${epLabel} failed: ${err.message}`);
+        }
+      }, PARALLEL_CONCURRENCY);
+
+      // Update season episode count
+      const epCount = await this.episodeModel.countDocuments({ seasonId: season._id });
+      await this.seasonModel.findByIdAndUpdate(seasonId, { episodeCount: epCount });
+    }
+
+    job.current = [];
+    job.running = false;
+    job.completed = job.uploaded;
+    this.logger.log(`[Full Import] Complete: ${job.uploaded}/${job.total} episodes, ${job.failed} failed`);
+  }
+
+  // ─── Drive Folder Scanner ───────────────────────────────────
+
+  private async scanDriveFolder(folderUrl: string): Promise<ScannedSeason[]> {
+    const folderIdMatch = folderUrl.match(/folders?\/([\w-]+)/);
+    if (!folderIdMatch) throw new Error('Invalid Google Drive folder URL');
+    const folderId = folderIdMatch[1];
+
+    const topLevel = await this.listDriveFolder(folderId);
+    const folders = topLevel.filter((f) => f.mimeType === 'application/vnd.google-apps.folder');
+    const videos = topLevel.filter((f) => this.isVideoFile(f));
+
+    const seasons: ScannedSeason[] = [];
+
+    // Subfolders → each is a separate season
+    if (folders.length > 0) {
+      const sorted = [...folders].sort((a, b) => {
+        const na = this.extractSeasonNumber(a.name);
+        const nb = this.extractSeasonNumber(b.name);
+        return na - nb || a.name.localeCompare(b.name);
+      });
+
+      // Scan all season folders in parallel
+      const folderResults = await this.runParallel(sorted, async (folder, idx) => {
+        const seasonNum = this.extractSeasonNumber(folder.name) || (idx + 1);
+        const subFiles = await this.listDriveFolder(folder.id);
+        const subVideos = subFiles.filter((f) => this.isVideoFile(f));
+        if (subVideos.length === 0) return null;
+
+        subVideos.sort((a, b) => this.extractEpisodeNumber(a.name) - this.extractEpisodeNumber(b.name));
+
+        return {
+          seasonNumber: seasonNum,
+          folderName: folder.name,
+          folderId: folder.id,
+          episodes: subVideos.map((v, i) => {
+            const epNum = this.extractEpisodeNumber(v.name) || (i + 1);
+            return {
+              fileId: v.id,
+              fileName: v.name,
+              episodeNumber: epNum,
+              title: this.cleanEpisodeTitle(v.name, epNum),
+            };
+          }),
+        } as ScannedSeason;
+      }, 5);
+
+      for (const r of folderResults.results) {
+        if (r && !(r instanceof Error)) seasons.push(r);
       }
     }
 
-    this.progress.current = null;
-    this.progress.running = false;
+    // Root-level videos → Season 1
+    if (videos.length > 0) {
+      videos.sort((a, b) => this.extractEpisodeNumber(a.name) - this.extractEpisodeNumber(b.name));
+      const seasonNum = seasons.length > 0 ? Math.max(...seasons.map((s) => s.seasonNumber)) + 1 : 1;
+      seasons.push({
+        seasonNumber: seasonNum,
+        episodes: videos.map((v, i) => {
+          const epNum = this.extractEpisodeNumber(v.name) || (i + 1);
+          return {
+            fileId: v.id,
+            fileName: v.name,
+            episodeNumber: epNum,
+            title: this.cleanEpisodeTitle(v.name, epNum),
+          };
+        }),
+      });
+    }
+
+    seasons.sort((a, b) => a.seasonNumber - b.seasonNumber);
+    return seasons;
   }
 
-  /**
-   * Check transcoding status for all episodes in a season.
-   */
+  private async listDriveFolder(folderId: string): Promise<DriveFile[]> {
+    const listUrl = `${this.workerUrl}/list?id=${folderId}`;
+    const res = await fetch(listUrl);
+    if (!res.ok) throw new Error(`Folder scan failed: ${res.status}`);
+    return await res.json() as DriveFile[];
+  }
+
+  // ═══ BUNNY WEBHOOK — AUTO-COMPLETION ═════════════════════════
+
+  async handleWebhook(body: { VideoId: string; Status: number; VideoLibraryId: number }): Promise<{ handled: boolean }> {
+    const { VideoId: videoId, Status: status } = body;
+    if (!videoId) return { handled: false };
+
+    this.logger.log(`[Webhook] Video ${videoId} status: ${status}`);
+
+    const hlsUrl = this.hlsUrl(videoId);
+
+    // Check if it's a movie
+    const movie = await this.movieModel.findOne({ hlsUrl });
+    if (movie) {
+      if (status === 4) {
+        movie.hlsStatus = 'completed';
+        movie.streamingSources = this.buildStreamingSources(videoId, '');
+        // Fetch actual resolutions
+        try {
+          const video = await this.getVideoStatus(videoId);
+          movie.streamingSources = this.buildStreamingSources(videoId, video.availableResolutions);
+        } catch {}
+        await movie.save();
+        this.logger.log(`[Webhook] Movie "${movie.title}" transcoding completed!`);
+      } else if (status === 5 || status === 6) {
+        movie.hlsStatus = 'failed';
+        await movie.save();
+        this.logger.log(`[Webhook] Movie "${movie.title}" transcoding FAILED`);
+      }
+      return { handled: true };
+    }
+
+    // Check if it's an episode
+    const episode = await this.episodeModel.findOne({
+      'streamingSources.url': hlsUrl,
+    });
+    if (episode) {
+      if (status === 4) {
+        try {
+          const video = await this.getVideoStatus(videoId);
+          episode.streamingSources = this.buildStreamingSources(videoId, video.availableResolutions) as any;
+        } catch {
+          episode.streamingSources = this.buildStreamingSources(videoId, '') as any;
+        }
+        await episode.save();
+        this.logger.log(`[Webhook] Episode "${episode.title}" transcoding completed!`);
+      }
+      return { handled: true };
+    }
+
+    this.logger.warn(`[Webhook] Video ${videoId} not found in DB`);
+    return { handled: false };
+  }
+
+  // ─── Bulk Upload Multiple Episodes ───────────────────────────
+
+  async bulkUploadEpisodes(
+    seasonId: string,
+    episodes: { episodeId: string; url: string }[],
+  ): Promise<{ jobId: string; message: string }> {
+    const season = await this.seasonModel.findById(seasonId);
+    if (!season) throw new Error('Season not found');
+
+    const series = await this.movieModel.findById(season.seriesId);
+    const collectionName = `${series?.title || 'Series'} - Season ${season.seasonNumber}`;
+    let collectionId: string | undefined;
+    try {
+      const col = await this.createCollection(collectionName);
+      collectionId = col.guid;
+    } catch {}
+
+    const job = this.createJob('bulk-upload', `Season ${season.seasonNumber} Bulk Upload`, episodes.length);
+
+    this.runBulkUpload(job, episodes, collectionId).catch((err) => {
+      this.logger.error(`Bulk upload crashed: ${err.message}`);
+      job.running = false;
+    });
+
+    return { jobId: job.jobId, message: `Uploading ${episodes.length} episodes in parallel` };
+  }
+
+  private async runBulkUpload(
+    job: StreamProgress,
+    episodes: { episodeId: string; url: string }[],
+    collectionId?: string,
+  ): Promise<void> {
+    await this.runParallel(episodes, async ({ episodeId, url }) => {
+      const episode = await this.episodeModel.findById(episodeId);
+      if (!episode) throw new Error(`Episode ${episodeId} not found`);
+
+      const epLabel = `${episode.title || 'Episode'} ${episode.episodeNumber}`;
+      job.current = [...job.current.filter((c) => c !== epLabel), epLabel].slice(-PARALLEL_CONCURRENCY);
+
+      const streamUrl = this.ensureStreamUrl(url);
+      const video = await this.fetchVideoFromUrl(epLabel, streamUrl, collectionId);
+
+      episode.streamingSources = [
+        { label: 'Auto (HLS)', url: this.hlsUrl(video.guid), quality: 'auto', priority: 0 } as any,
+      ];
+      if (!episode.thumbnailUrl) {
+        episode.thumbnailUrl = this.thumbnailUrl(video.guid);
+      }
+      await episode.save();
+
+      job.uploaded++;
+      job.transcoding++;
+      job.results.push({ id: video.guid, title: epLabel, status: 'success', bunnyVideoId: video.guid });
+    }, PARALLEL_CONCURRENCY);
+
+    job.current = [];
+    job.running = false;
+    job.completed = job.uploaded;
+  }
+
+  // ─── Season Transcoding Status ──────────────────────────────
+
   async checkSeasonTranscoding(seasonId: string): Promise<{
     total: number;
     finished: number;
@@ -575,13 +888,14 @@ export class BunnyService {
     let finished = 0;
     let processing = 0;
     let failed = 0;
-    const episodeStatuses = [];
+    const episodeStatuses: { episodeNumber: number; status: number; encodeProgress: number; resolutions: string }[] = [];
 
-    for (const ep of episodes) {
+    // Check statuses in parallel too
+    await this.runParallel(episodes, async (ep) => {
       const hlsSource = ep.streamingSources?.find((s) => s.url?.includes('playlist.m3u8'));
       if (!hlsSource) {
         episodeStatuses.push({ episodeNumber: ep.episodeNumber, status: -1, encodeProgress: 0, resolutions: '' });
-        continue;
+        return;
       }
 
       const videoId = this.extractVideoIdFromHls(hlsSource.url);
@@ -596,7 +910,6 @@ export class BunnyService {
 
         if (video.status === 4) {
           finished++;
-          // Update sources with per-resolution MP4s
           ep.streamingSources = this.buildStreamingSources(videoId, video.availableResolutions);
           await ep.save();
         } else if (video.status === 5 || video.status === 6) {
@@ -604,34 +917,29 @@ export class BunnyService {
         } else {
           processing++;
         }
-      } catch (err) {
+      } catch {
         episodeStatuses.push({ episodeNumber: ep.episodeNumber, status: -1, encodeProgress: 0, resolutions: '' });
         failed++;
       }
-    }
+    }, 10); // Higher concurrency for status checks
 
+    episodeStatuses.sort((a, b) => a.episodeNumber - b.episodeNumber);
     return { total: episodes.length, finished, processing, failed, episodes: episodeStatuses };
   }
 
-  /** Get library overview stats */
-  async getLibraryStatus(): Promise<{
-    totalVideos: number;
-    videos: BunnyVideo[];
-  }> {
+  async getLibraryStatus(): Promise<{ totalVideos: number; videos: BunnyVideo[] }> {
     const data = await this.listVideos(1, 100);
     return { totalVideos: data.totalItems, videos: data.items };
   }
 
   // ─── Utility Methods ─────────────────────────────────────────
 
-  /** Build streaming sources array from available resolutions */
-  private buildStreamingSources(videoId: string, availableResolutions: string): any[] {
+  buildStreamingSources(videoId: string, availableResolutions: string): any[] {
     const sources: any[] = [
       { label: 'Auto (HLS)', url: this.hlsUrl(videoId), quality: 'auto', priority: 0 },
     ];
     if (availableResolutions) {
       const resolutions = availableResolutions.split(',').map((r) => r.trim()).filter(Boolean);
-      // Sort by resolution descending
       const resPriority: Record<string, number> = { '1080p': 1, '720p': 2, '480p': 3, '360p': 4, '240p': 5 };
       resolutions.sort((a, b) => (resPriority[a] || 99) - (resPriority[b] || 99));
       for (const res of resolutions) {
@@ -646,21 +954,16 @@ export class BunnyService {
     return sources;
   }
 
-  /** Extract Bunny video GUID from HLS URL */
   private extractVideoIdFromHls(hlsUrl: string): string {
-    // https://vz-xxx.b-cdn.net/VIDEO_ID/playlist.m3u8
     const match = hlsUrl.match(/\/([a-f0-9-]+)\/playlist\.m3u8/);
     if (!match) throw new Error(`Cannot extract video ID from: ${hlsUrl}`);
     return match[1];
   }
 
-  /** Ensure a URL is a streamable Worker URL */
   private ensureStreamUrl(url: string): string {
-    // Already a direct/CDN URL — return as-is
     if (!url.includes('drive.google.com') && !url.includes('drive.usercontent.google.com')) {
       return url;
     }
-    // Extract Drive file ID and convert to Worker stream URL
     const fileId = this.extractDriveFileId(url);
     if (fileId) {
       return `${this.workerUrl}/stream/${fileId}`;
@@ -668,7 +971,6 @@ export class BunnyService {
     return url;
   }
 
-  /** Extract Google Drive file ID from any URL format */
   private extractDriveFileId(url: string): string | null {
     if (!url) return null;
     const patterns = [
@@ -685,19 +987,23 @@ export class BunnyService {
     return null;
   }
 
-  /** Extract episode number from filename */
+  private isVideoFile(file: DriveFile): boolean {
+    return file.mimeType?.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov|ts|m4v|flv|wmv)$/i.test(file.name);
+  }
+
+  private extractSeasonNumber(name: string): number {
+    const match = name.match(/(?:season|s)[\s._-]*(\d+)/i) || name.match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
   private extractEpisodeNumber(filename: string): number {
     const match = filename.match(/(?:ep|episode|e)[\s._-]*(\d+)/i) || filename.match(/(\d+)/);
     return match ? parseInt(match[1], 10) : 0;
   }
 
-  /** Clean episode title from filename */
   private cleanEpisodeTitle(filename: string, epNum: number): string {
-    // Remove extension
     let name = filename.replace(/\.[^.]+$/, '');
-    // Remove common prefixes
     name = name.replace(/^(EP|Episode|E)[\s._-]*\d+[\s._-]*/i, '');
-    // Clean underscores/dots
     name = name.replace(/[._]/g, ' ').trim();
     return name || `Episode ${epNum}`;
   }

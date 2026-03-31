@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Body,
+  Query,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -15,39 +16,62 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('bunny')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('admin')
 export class BunnyController {
   constructor(private readonly bunnyService: BunnyService) {}
+
+  // ═══ WEBHOOK (no auth — called by Bunny.net) ═════════════════
+
+  @Post('stream/webhook')
+  async handleWebhook(@Body() body: { VideoId: string; Status: number; VideoLibraryId: number }) {
+    return this.bunnyService.handleWebhook(body);
+  }
+
+  // ═══ ADMIN ENDPOINTS (auth required) ══════════════════════════
 
   // ─── Library Status ──────────────────────────────────────────
 
   @Get('stream/library')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async getLibraryStatus() {
     return this.bunnyService.getLibraryStatus();
   }
 
   @Get('stream/videos')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async listVideos() {
     return this.bunnyService.listVideos();
   }
 
   @Get('stream/video/:videoId')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async getVideoStatus(@Param('videoId') videoId: string) {
     return this.bunnyService.getVideoStatus(videoId);
   }
 
-  // ─── Progress Tracking ───────────────────────────────────────
+  // ─── Job / Progress Tracking ─────────────────────────────────
+
+  @Get('stream/jobs')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
+  getActiveJobs() {
+    return this.bunnyService.getActiveJobs();
+  }
 
   @Get('stream/progress')
-  getProgress() {
-    return this.bunnyService.getProgress();
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
+  getProgress(@Query('jobId') jobId?: string) {
+    return this.bunnyService.getProgress(jobId);
   }
 
   // ─── Movie Upload ────────────────────────────────────────────
 
-  /** Upload a movie to Bunny Stream from URL (fetches & transcodes) */
   @Post('stream/movie/:movieId/fetch')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async fetchMovieFromUrl(
     @Param('movieId') movieId: string,
     @Body() body: { url?: string },
@@ -55,8 +79,9 @@ export class BunnyController {
     return this.bunnyService.uploadMovieFromUrl(movieId, body.url);
   }
 
-  /** Upload a movie file directly to Bunny Stream */
   @Post('stream/movie/:movieId/upload')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 * 1024 } }))
   async uploadMovieFile(
     @Param('movieId') movieId: string,
@@ -66,16 +91,18 @@ export class BunnyController {
     return this.bunnyService.uploadMovieFromFile(movieId, file.buffer, file.originalname);
   }
 
-  /** Check movie transcoding status */
   @Get('stream/movie/:movieId/status')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async checkMovieTranscoding(@Param('movieId') movieId: string) {
     return this.bunnyService.checkMovieTranscoding(movieId);
   }
 
   // ─── Episode Upload ──────────────────────────────────────────
 
-  /** Upload an episode to Bunny Stream from URL */
   @Post('stream/episode/:episodeId/fetch')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async fetchEpisodeFromUrl(
     @Param('episodeId') episodeId: string,
     @Body() body: { url?: string },
@@ -83,8 +110,9 @@ export class BunnyController {
     return this.bunnyService.uploadEpisodeFromUrl(episodeId, body.url);
   }
 
-  /** Upload an episode file directly */
   @Post('stream/episode/:episodeId/upload')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 * 1024 } }))
   async uploadEpisodeFile(
     @Param('episodeId') episodeId: string,
@@ -94,10 +122,11 @@ export class BunnyController {
     return this.bunnyService.uploadEpisodeFromFile(episodeId, file.buffer, file.originalname);
   }
 
-  // ─── Season / Folder Import ──────────────────────────────────
+  // ─── Season / Folder Import (Parallel) ───────────────────────
 
-  /** Import all episodes from a Google Drive folder to Bunny Stream */
   @Post('stream/season/:seasonId/import-folder')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async importSeasonFromFolder(
     @Param('seasonId') seasonId: string,
     @Body() body: { folderUrl: string },
@@ -105,21 +134,49 @@ export class BunnyController {
     return this.bunnyService.importSeasonFromFolder(seasonId, body.folderUrl);
   }
 
-  /** Migrate existing season episodes to Bunny Stream (re-fetch from current URLs) */
   @Post('stream/season/:seasonId/migrate')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async migrateSeasonToBunnyStream(@Param('seasonId') seasonId: string) {
     return this.bunnyService.migrateSeasonToBunnyStream(seasonId);
   }
 
-  /** Check transcoding status for all episodes in a season */
   @Get('stream/season/:seasonId/status')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async checkSeasonTranscoding(@Param('seasonId') seasonId: string) {
     return this.bunnyService.checkSeasonTranscoding(seasonId);
+  }
+
+  // ─── Bulk Upload Episodes ────────────────────────────────────
+
+  @Post('stream/season/:seasonId/bulk-upload')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
+  async bulkUploadEpisodes(
+    @Param('seasonId') seasonId: string,
+    @Body() body: { episodes: { episodeId: string; url: string }[] },
+  ) {
+    return this.bunnyService.bulkUploadEpisodes(seasonId, body.episodes);
+  }
+
+  // ═══ FULL SERIES IMPORT (ONE-CLICK PIPELINE) ═════════════════
+
+  @Post('stream/series/:seriesId/import')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
+  async importFullSeries(
+    @Param('seriesId') seriesId: string,
+    @Body() body: { folderUrl: string },
+  ) {
+    return this.bunnyService.importFullSeries(seriesId, body.folderUrl);
   }
 
   // ─── Collections ─────────────────────────────────────────────
 
   @Get('stream/collections')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
   async listCollections() {
     return this.bunnyService.listCollections();
   }

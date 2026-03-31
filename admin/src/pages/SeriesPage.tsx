@@ -732,14 +732,16 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
   const queryClient = useQueryClient();
   const [folderUrl, setFolderUrl] = useState('');
   const [tab, setTab] = useState<'import' | 'migrate' | 'status'>('import');
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   // Import from Drive folder to Bunny Stream
   const importMutation = useMutation({
     mutationFn: async () => {
       const { data } = await api.post(`/bunny/stream/season/${seasonId}/import-folder`, { folderUrl });
-      return data;
+      return data as { jobId: string; message: string };
     },
     onSuccess: (data) => {
+      setActiveJobId(data.jobId);
       toast.success(data.message || 'Import started');
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Import failed'),
@@ -749,24 +751,33 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
   const migrateMutation = useMutation({
     mutationFn: async () => {
       const { data } = await api.post(`/bunny/stream/season/${seasonId}/migrate`);
-      return data;
+      return data as { jobId: string; message: string };
     },
     onSuccess: (data) => {
+      setActiveJobId(data.jobId);
       toast.success(data.message || 'Migration started');
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Migration failed'),
   });
 
-  // Poll progress
-  const [polling, setPolling] = useState(false);
-  const { data: progress, refetch: refetchProgress } = useQuery({
-    queryKey: ['bunny-progress'],
+  // Poll job progress
+  const { data: jobProgress } = useQuery({
+    queryKey: ['bunny-job', activeJobId],
     queryFn: async () => {
-      const { data } = await api.get('/bunny/stream/progress');
-      return data as { total: number; completed: number; failed: number; current: string | null; running: boolean; results: any[] };
+      const { data } = await api.get(`/bunny/stream/progress?jobId=${activeJobId}`);
+      return data as { jobId: string; total: number; uploaded: number; transcoding: number; completed: number; failed: number; current: string[]; running: boolean; results: any[] } | null;
     },
-    refetchInterval: polling ? 3000 : false,
+    enabled: !!activeJobId,
+    refetchInterval: activeJobId ? 2000 : false,
   });
+
+  // Stop polling when job completes
+  useEffect(() => {
+    if (jobProgress && !jobProgress.running && activeJobId) {
+      queryClient.invalidateQueries({ queryKey: ['episodes', seasonId] });
+      queryClient.invalidateQueries({ queryKey: ['seasons'] });
+    }
+  }, [jobProgress?.running, activeJobId, queryClient, seasonId]);
 
   // Poll transcoding status
   const { data: transcodingStatus, refetch: refetchTranscoding } = useQuery({
@@ -779,24 +790,6 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
     refetchInterval: tab === 'status' ? 10000 : false,
   });
 
-  useEffect(() => {
-    if (progress?.running) {
-      setPolling(true);
-    } else if (polling && progress && !progress.running) {
-      setPolling(false);
-      queryClient.invalidateQueries({ queryKey: ['episodes', seasonId] });
-      queryClient.invalidateQueries({ queryKey: ['seasons'] });
-    }
-  }, [progress?.running, polling, queryClient, seasonId]);
-
-  // Start polling when import/migrate begins
-  useEffect(() => {
-    if (importMutation.isSuccess || migrateMutation.isSuccess) {
-      setPolling(true);
-      refetchProgress();
-    }
-  }, [importMutation.isSuccess, migrateMutation.isSuccess, refetchProgress]);
-
   const statusLabel = (s: number) => {
     const map: Record<number, string> = { 0: 'Created', 1: 'Uploaded', 2: 'Processing', 3: 'Transcoding', 4: 'Finished', 5: 'Error', 6: 'Upload Failed', [-1]: 'No HLS' };
     return map[s] || 'Unknown';
@@ -806,6 +799,9 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
     if (s === 5 || s === 6 || s === -1) return 'text-red-400';
     return 'text-yellow-400';
   };
+
+  const progress = jobProgress;
+  const progressPct = progress && progress.total > 0 ? ((progress.uploaded + progress.failed) / progress.total) * 100 : 0;
 
   return (
     <div className="px-6 py-4 bg-background border-b border-border space-y-4">
@@ -835,7 +831,7 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
       {tab === 'import' && (
         <div className="space-y-3">
           <p className="text-xs text-text-muted">
-            Paste a Google Drive folder link. All video files will be uploaded to Bunny Stream with automatic multi-resolution transcoding (1080p, 720p, 480p, 360p, 240p).
+            Paste a Google Drive folder link. All video files will be uploaded to Bunny Stream <strong>in parallel</strong> with automatic multi-resolution transcoding (1080p, 720p, 480p, 360p, 240p).
           </p>
           <div className="flex gap-2">
             <input
@@ -846,7 +842,7 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
             />
             <button
               onClick={() => importMutation.mutate()}
-              disabled={!folderUrl.trim() || importMutation.isPending}
+              disabled={!folderUrl.trim() || importMutation.isPending || !!progress?.running}
               className="flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 whitespace-nowrap"
             >
               {importMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
@@ -855,7 +851,7 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
           </div>
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/30 text-xs text-purple-300">
             <Zap size={14} />
-            <span>Episodes are auto-detected, uploaded to Bunny Stream, and transcoded to <strong>HLS adaptive streaming</strong> with 5 quality levels.</span>
+            <span>5 episodes upload simultaneously. Auto-detected, uploaded to Bunny Stream, and transcoded to <strong>HLS adaptive streaming</strong>.</span>
           </div>
         </div>
       )}
@@ -864,11 +860,11 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
       {tab === 'migrate' && (
         <div className="space-y-3">
           <p className="text-xs text-text-muted">
-            Re-upload all existing episodes in this season to Bunny Stream. Current video URLs will be fetched and transcoded into HLS adaptive streaming.
+            Re-upload all existing episodes in this season to Bunny Stream <strong>in parallel</strong>. Current video URLs will be fetched and transcoded into HLS adaptive streaming.
           </p>
           <button
             onClick={() => migrateMutation.mutate()}
-            disabled={migrateMutation.isPending}
+            disabled={migrateMutation.isPending || !!progress?.running}
             className="flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
           >
             {migrateMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -937,35 +933,36 @@ function BunnyStreamPanel({ seasonId, onClose }: { seasonId: string; onClose: ()
         <div className="bg-surface rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="text-purple-400 font-medium">
-              {progress.current || 'Processing...'}
+              {progress.current?.length > 0 ? progress.current.join(' · ') : 'Starting...'}
             </span>
             <span className="text-text-muted">
-              {progress.completed}/{progress.total}
+              {progress.uploaded}/{progress.total} uploaded
               {progress.failed > 0 && <span className="text-red-400 ml-1">({progress.failed} failed)</span>}
             </span>
           </div>
           <div className="w-full bg-surface-light rounded-full h-2">
             <div
               className="bg-purple-500 h-2 rounded-full transition-all"
-              style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
+              style={{ width: `${progressPct}%` }}
             />
           </div>
+          <div className="text-[10px] text-text-muted">Processing 5 episodes in parallel</div>
         </div>
       )}
 
       {/* Completed results */}
-      {progress && !progress.running && progress.results.length > 0 && (
+      {progress && !progress.running && progress.results?.length > 0 && (
         <div className="bg-surface rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-green-400">
-              Complete: {progress.completed - progress.failed}/{progress.total} succeeded
+              Complete: {progress.uploaded}/{progress.total} succeeded
             </span>
             <span className="text-xs text-text-muted">
               {progress.failed > 0 && <span className="text-red-400">{progress.failed} failed</span>}
             </span>
           </div>
           <div className="max-h-32 overflow-y-auto space-y-1">
-            {progress.results.map((r, i) => (
+            {progress.results.map((r: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-xs">
                 {r.status === 'success' ? (
                   <Check size={12} className="text-green-400" />
@@ -1013,9 +1010,12 @@ function FolderImportModal({
   series: Movie[];
   onClose: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [folderUrl, setFolderUrl] = useState('');
   const [selectedSeriesId, setSelectedSeriesId] = useState('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [uploadToBunny, setUploadToBunny] = useState(true);
+  const [bunnyJobId, setBunnyJobId] = useState<string | null>(null);
 
   const scanMutation = useMutation({
     mutationFn: async () => {
@@ -1031,6 +1031,7 @@ function FolderImportModal({
     },
   });
 
+  // DB-only import (old flow)
   const importMutation = useMutation({
     mutationFn: async () => {
       if (!selectedSeriesId || !scanResult) throw new Error('Select a series first');
@@ -1044,6 +1045,7 @@ function FolderImportModal({
       toast.success(
         `Imported ${data.seasonsCreated} season(s) with ${data.episodesCreated} episode(s)`,
       );
+      queryClient.invalidateQueries({ queryKey: ['seasons'] });
       onClose();
     },
     onError: (err: any) => {
@@ -1051,9 +1053,57 @@ function FolderImportModal({
     },
   });
 
+  // Full pipeline: scan + create DB entries + upload to Bunny Stream
+  const fullImportMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedSeriesId) throw new Error('Select a series first');
+      const { data } = await api.post(`/bunny/stream/series/${selectedSeriesId}/import`, {
+        folderUrl,
+      });
+      return data as { jobId: string; message: string };
+    },
+    onSuccess: (data) => {
+      setBunnyJobId(data.jobId);
+      toast.success(data.message || 'Full pipeline started');
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Full import failed');
+    },
+  });
+
+  // Poll Bunny job progress
+  const { data: bunnyProgress } = useQuery({
+    queryKey: ['bunny-full-import', bunnyJobId],
+    queryFn: async () => {
+      const { data } = await api.get(`/bunny/stream/progress?jobId=${bunnyJobId}`);
+      return data as { jobId: string; label: string; total: number; uploaded: number; transcoding: number; completed: number; failed: number; current: string[]; running: boolean; results: any[] } | null;
+    },
+    enabled: !!bunnyJobId,
+    refetchInterval: bunnyJobId ? 2000 : false,
+  });
+
+  useEffect(() => {
+    if (bunnyProgress && !bunnyProgress.running && bunnyJobId) {
+      queryClient.invalidateQueries({ queryKey: ['seasons'] });
+      queryClient.invalidateQueries({ queryKey: ['episodes'] });
+    }
+  }, [bunnyProgress?.running, bunnyJobId, queryClient]);
+
+  const bunnyPct = bunnyProgress && bunnyProgress.total > 0 ? ((bunnyProgress.uploaded + bunnyProgress.failed) / bunnyProgress.total) * 100 : 0;
+
   const seriesOptions = series.filter((s) =>
     ['web_series', 'tv_show', 'anime'].includes(s.contentType),
   );
+
+  const handleImport = () => {
+    if (uploadToBunny) {
+      fullImportMutation.mutate();
+    } else {
+      importMutation.mutate();
+    }
+  };
+
+  const isImporting = importMutation.isPending || fullImportMutation.isPending || bunnyProgress?.running;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -1083,7 +1133,7 @@ function FolderImportModal({
             <div className="flex gap-2">
               <input
                 value={folderUrl}
-                onChange={(e) => { setFolderUrl(e.target.value); setScanResult(null); }}
+                onChange={(e) => { setFolderUrl(e.target.value); setScanResult(null); setBunnyJobId(null); }}
                 placeholder="https://drive.google.com/drive/folders/..."
                 className="flex-1 bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-gold"
               />
@@ -1185,24 +1235,123 @@ function FolderImportModal({
                 )}
               </div>
 
+              {/* Upload to Bunny Stream Toggle */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">3. Upload Options</label>
+                <button
+                  onClick={() => setUploadToBunny(!uploadToBunny)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                    uploadToBunny
+                      ? 'border-purple-500/50 bg-purple-500/10'
+                      : 'border-border bg-surface-light hover:bg-surface'
+                  }`}
+                >
+                  <div className={`w-10 h-5 rounded-full transition-colors relative ${uploadToBunny ? 'bg-purple-500' : 'bg-surface'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${uploadToBunny ? 'left-5' : 'left-0.5'}`} />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <Cloud size={14} className={uploadToBunny ? 'text-purple-400' : 'text-text-muted'} />
+                      Upload to Bunny Stream
+                    </div>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      {uploadToBunny
+                        ? 'Full pipeline: Create DB entries + upload all episodes to Bunny Stream in parallel with HLS transcoding (1080p-240p)'
+                        : 'DB only: Create seasons & episodes with Google Drive links (no Bunny Stream upload)'}
+                    </p>
+                  </div>
+                  {uploadToBunny && (
+                    <span className="text-[10px] bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full font-medium">RECOMMENDED</span>
+                  )}
+                </button>
+              </div>
+
               {/* Import Button */}
               <div className="flex justify-end">
                 <button
-                  onClick={() => importMutation.mutate()}
-                  disabled={!selectedSeriesId || importMutation.isPending}
-                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                  onClick={handleImport}
+                  disabled={!selectedSeriesId || !!isImporting}
+                  className={`flex items-center gap-2 text-white px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 ${
+                    uploadToBunny
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
                 >
-                  {importMutation.isPending ? (
+                  {isImporting ? (
                     <Loader2 size={18} className="animate-spin" />
+                  ) : uploadToBunny ? (
+                    <Cloud size={18} />
                   ) : (
                     <Upload size={18} />
                   )}
-                  {importMutation.isPending
-                    ? 'Importing...'
-                    : `Import ${scanResult.totalFiles} Episodes`}
+                  {isImporting
+                    ? 'Processing...'
+                    : uploadToBunny
+                      ? `Import & Upload ${scanResult.totalFiles} Episodes to Bunny`
+                      : `Import ${scanResult.totalFiles} Episodes`}
                 </button>
               </div>
             </>
+          )}
+
+          {/* Bunny pipeline progress */}
+          {bunnyProgress?.running && (
+            <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-purple-400 flex items-center gap-2">
+                  <Cloud size={14} /> {bunnyProgress.label || 'Uploading to Bunny Stream...'}
+                </span>
+                <span className="text-xs text-text-muted">
+                  {bunnyProgress.uploaded}/{bunnyProgress.total} uploaded
+                </span>
+              </div>
+              <div className="w-full bg-surface rounded-full h-2.5">
+                <div className="bg-purple-500 h-2.5 rounded-full transition-all" style={{ width: `${bunnyPct}%` }} />
+              </div>
+              {bunnyProgress.current?.length > 0 && (
+                <div className="text-xs text-text-muted">
+                  Now: {bunnyProgress.current.join(' · ')}
+                </div>
+              )}
+              <div className="flex gap-4 text-xs text-text-muted">
+                <span>Transcoding: {bunnyProgress.transcoding}</span>
+                {bunnyProgress.failed > 0 && <span className="text-red-400">Failed: {bunnyProgress.failed}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Bunny pipeline completed */}
+          {bunnyProgress && !bunnyProgress.running && bunnyProgress.results?.length > 0 && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Check size={16} className="text-green-400" />
+                <span className="text-sm font-medium text-green-400">
+                  Pipeline complete: {bunnyProgress.uploaded}/{bunnyProgress.total} uploaded to Bunny Stream
+                </span>
+              </div>
+              {bunnyProgress.failed > 0 && (
+                <p className="text-xs text-red-400">{bunnyProgress.failed} episode(s) failed</p>
+              )}
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {bunnyProgress.results.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {r.status === 'success' ? (
+                      <Check size={12} className="text-green-400" />
+                    ) : (
+                      <AlertTriangle size={12} className="text-red-400" />
+                    )}
+                    <span className="truncate">{r.title}</span>
+                    {r.error && <span className="text-red-400 truncate">{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={onClose}
+                className="text-xs text-purple-400 hover:text-purple-300 underline"
+              >
+                Close and view series
+              </button>
+            </div>
           )}
 
           {/* Scanning state */}
