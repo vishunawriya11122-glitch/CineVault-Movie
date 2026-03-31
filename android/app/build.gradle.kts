@@ -118,8 +118,7 @@ dependencies {
     // Lottie
     implementation("com.airbnb.android:lottie-compose:6.3.0")
 
-    // YouTube Player (WebView-based, no API key needed)
-    implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:12.1.1")
+
 
     // DataStore (Preferences)
     implementation("androidx.datastore:datastore-preferences:1.0.0")

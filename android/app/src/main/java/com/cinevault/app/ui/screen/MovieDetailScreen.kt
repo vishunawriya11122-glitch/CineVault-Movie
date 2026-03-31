@@ -1481,19 +1481,80 @@ private fun TrailerPlayer(
     }
 }
 
-// ── YouTube Trailer Player ──
+// ── YouTube Trailer Player (WebView + IFrame API) ──
 
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun YouTubeTrailerPlayer(
     videoId: String,
     modifier: Modifier = Modifier,
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(true) }
     var is2x by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
-    var ytPlayer by remember {
-        mutableStateOf<com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer?>(null)
+
+    val webView = remember(videoId) {
+        android.webkit.WebView(context).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
+            settings.javaScriptEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.domStorageEnabled = true
+            settings.loadWithOverviewMode = true
+            settings.useWideViewPort = true
+            webChromeClient = android.webkit.WebChromeClient()
+
+            // JS → Kotlin bridge for player state
+            addJavascriptInterface(object {
+                @android.webkit.JavascriptInterface
+                fun onStateChange(state: Int) {
+                    // YT states: 0=ended, 1=playing, 2=paused, 3=buffering
+                    when (state) {
+                        1 -> isPlaying = true
+                        2 -> isPlaying = false
+                    }
+                }
+            }, "Android")
+
+            val html = """
+<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>*{margin:0;padding:0;overflow:hidden;background:#000}
+html,body,#player{width:100%;height:100%}</style>
+</head><body>
+<div id="player"></div>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+var player;
+function onYouTubeIframeAPIReady(){
+  player=new YT.Player('player',{
+    width:'100%',height:'100%',
+    videoId:'${videoId}',
+    playerVars:{autoplay:1,controls:0,loop:1,
+      playlist:'${videoId}',playsinline:1,
+      rel:0,modestbranding:1,showinfo:0,fs:0,iv_load_policy:3},
+    events:{
+      onReady:function(e){e.target.playVideo();},
+      onStateChange:function(e){
+        Android.onStateChange(e.data);
+        if(e.data===0){e.target.seekTo(0);e.target.playVideo();}
+      }
+    }
+  });
+}
+function doPause(){if(player)player.pauseVideo();}
+function doPlay(){if(player)player.playVideo();}
+function doSpeed(r){if(player)player.setPlaybackRate(r);}
+</script>
+</body></html>
+            """.trimIndent()
+
+            loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "utf-8", null)
+        }
+    }
+
+    DisposableEffect(videoId) {
+        onDispose { webView.destroy() }
     }
 
     // Auto-hide controls after 3 seconds
@@ -1505,50 +1566,8 @@ private fun YouTubeTrailerPlayer(
     }
 
     Box(modifier = modifier) {
-        // YouTube player view
         AndroidView(
-            factory = { ctx ->
-                com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView(ctx).apply {
-                    lifecycleOwner.lifecycle.addObserver(this)
-                    enableAutomaticInitialization = false
-
-                    val options = com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions.Builder()
-                        .controls(0)   // Hide YouTube controls (we draw our own)
-                        .autoplay(1)
-                        .rel(0)
-                        .build()
-
-                    initialize(
-                        object : com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener() {
-                            override fun onReady(youTubePlayer: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer) {
-                                ytPlayer = youTubePlayer
-                                youTubePlayer.loadVideo(videoId, 0f)
-                            }
-
-                            override fun onStateChange(
-                                youTubePlayer: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer,
-                                state: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState,
-                            ) {
-                                when (state) {
-                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.ENDED -> {
-                                        // Loop: restart video
-                                        youTubePlayer.seekTo(0f)
-                                        youTubePlayer.play()
-                                    }
-                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PLAYING -> {
-                                        isPlaying = true
-                                    }
-                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PAUSED -> {
-                                        isPlaying = false
-                                    }
-                                    else -> {}
-                                }
-                            }
-                        },
-                        options
-                    )
-                }
-            },
+            factory = { webView },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -1561,9 +1580,7 @@ private fun YouTubeTrailerPlayer(
                         onTap = { showControls = !showControls },
                         onLongPress = {
                             is2x = true
-                            ytPlayer?.setPlaybackRate(
-                                com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlaybackRate.RATE_2
-                            )
+                            webView.evaluateJavascript("doSpeed(2)", null)
                         }
                     )
                 }
@@ -1573,9 +1590,7 @@ private fun YouTubeTrailerPlayer(
                             val event = awaitPointerEvent()
                             if (event.type == PointerEventType.Release && is2x) {
                                 is2x = false
-                                ytPlayer?.setPlaybackRate(
-                                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlaybackRate.RATE_1
-                                )
+                                webView.evaluateJavascript("doSpeed(1)", null)
                             }
                         }
                     }
@@ -1612,11 +1627,9 @@ private fun YouTubeTrailerPlayer(
                 IconButton(
                     onClick = {
                         if (isPlaying) {
-                            ytPlayer?.pause()
-                            isPlaying = false
+                            webView.evaluateJavascript("doPause()", null)
                         } else {
-                            ytPlayer?.play()
-                            isPlaying = true
+                            webView.evaluateJavascript("doPlay()", null)
                         }
                     },
                     modifier = Modifier
