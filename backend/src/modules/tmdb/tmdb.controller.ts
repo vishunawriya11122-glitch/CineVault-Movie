@@ -20,6 +20,14 @@ export class TmdbController {
     return this.tmdbService.discover({ ...body, count });
   }
 
+  @Post('search')
+  @ApiOperation({ summary: 'Search TMDB by title/name (Admin)' })
+  async search(
+    @Body() body: { query: string; contentType: 'movies' | 'shows' | 'anime' | 'webseries'; page?: number },
+  ) {
+    return this.tmdbService.search(body);
+  }
+
   @Post('import')
   @ApiOperation({ summary: 'Import selected TMDB items into database (Admin)' })
   async importItems(

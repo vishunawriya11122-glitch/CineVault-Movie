@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Search, Download, Check, CheckSquare, Square, Loader2, AlertCircle, X } from 'lucide-react';
+import { Search, Download, Check, CheckSquare, Square, Loader2, AlertCircle, X, Compass } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -80,17 +80,51 @@ const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: currentYear - 1979 }, (_, i) => currentYear - i);
 
 export default function TmdbImportPage() {
+  const [mode, setMode] = useState<'search' | 'discover'>('search');
   const [contentType, setContentType] = useState<string>('movies');
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchPage, setSearchPage] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
+
+  // Discover state
   const [region, setRegion] = useState<string>('bollywood');
   const [count, setCount] = useState<number>(20);
   const [year, setYear] = useState<string>('');
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
   const [dubbed, setDubbed] = useState<string>('');
+  const [nextPage, setNextPage] = useState<number>(1);
+
+  // Shared state
   const [results, setResults] = useState<TmdbPreviewItem[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [nextPage, setNextPage] = useState<number>(1);
 
+  // Search mutation
+  const searchMutation = useMutation({
+    mutationFn: async (page: number) => {
+      const { data } = await api.post('/tmdb/search', { query: searchQuery, contentType, page });
+      return data as { items: TmdbPreviewItem[]; nextPage: number; totalResults: number };
+    },
+    onSuccess: (data, page) => {
+      if (page === 1) {
+        setResults(data.items);
+      } else {
+        setResults((prev) => [...prev, ...data.items]);
+      }
+      setSearchPage(data.nextPage);
+      setTotalResults(data.totalResults);
+      setSelected(new Set());
+      setImportResult(null);
+      toast.success(`Found ${data.totalResults} results`);
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Search failed');
+    },
+  });
+
+  // Discover mutation
   const discoverMutation = useMutation({
     mutationFn: async () => {
       const body: any = { contentType, region, count, page: nextPage };
@@ -135,6 +169,7 @@ export default function TmdbImportPage() {
     },
   });
 
+  const isLoading = searchMutation.isPending || discoverMutation.isPending;
   const selectableItems = results.filter((r) => !r.alreadyImported);
   const allSelected = selectableItems.length > 0 && selectableItems.every((r) => selected.has(r.tmdbId));
 
@@ -156,133 +191,219 @@ export default function TmdbImportPage() {
     setSelectedGenres((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
   };
 
-  // Reset page when filters change
   const resetPage = () => setNextPage(1);
+
+  const switchMode = (m: 'search' | 'discover') => {
+    setMode(m);
+    setResults([]);
+    setSelected(new Set());
+    setImportResult(null);
+  };
+
+  const handleSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!searchQuery.trim()) return;
+    setSearchPage(1);
+    searchMutation.mutate(1);
+  };
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">TMDB Import</h1>
 
-      {/* Controls */}
-      <div className="bg-surface border border-border rounded-xl p-6 space-y-4">
-        {/* Row 1: Content Type, Region, Year, Count */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Content Type</label>
-            <select
-              value={contentType}
-              onChange={(e) => { setContentType(e.target.value); resetPage(); }}
-              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
-            >
-              {CONTENT_TYPES.map((ct) => (
-                <option key={ct.value} value={ct.value}>{ct.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Region</label>
-            <select
-              value={region}
-              onChange={(e) => { setRegion(e.target.value); resetPage(); }}
-              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
-            >
-              {REGIONS.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Year</label>
-            <select
-              value={year}
-              onChange={(e) => { setYear(e.target.value); resetPage(); }}
-              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
-            >
-              <option value="">All Years</option>
-              {YEARS.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Count</label>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={count}
-              onChange={(e) => { setCount(Math.max(1, Math.min(100, Number(e.target.value) || 1))); resetPage(); }}
-              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
-              placeholder="e.g. 10"
-            />
-          </div>
-        </div>
-
-        {/* Row 2: Language / Dubbed */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Language / Dubbed</label>
-            <select
-              value={dubbed}
-              onChange={(e) => { setDubbed(e.target.value); resetPage(); }}
-              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
-            >
-              {DUBBED_OPTIONS.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Row 3: Genre Multi-Select */}
-        <div>
-          <label className="block text-sm text-text-secondary mb-2">Genres {selectedGenres.length > 0 && `(${selectedGenres.length} selected)`}</label>
-          <div className="flex flex-wrap gap-2">
-            {GENRES.map((g) => {
-              const active = selectedGenres.includes(g.id);
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => { toggleGenre(g.id); resetPage(); }}
-                  className={clsx(
-                    'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
-                    active
-                      ? 'bg-gold text-background border-gold'
-                      : 'bg-surface-light text-text-secondary border-border hover:border-gold/50',
-                  )}
-                >
-                  {g.name}
-                  {active && <X size={12} className="inline ml-1 -mr-0.5" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { resetPage(); discoverMutation.mutate(); }}
-            disabled={discoverMutation.isPending}
-            className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
-          >
-            {discoverMutation.isPending ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-            {discoverMutation.isPending ? 'Fetching...' : 'Discover'}
-          </button>
-          {results.length > 0 && (
-            <button
-              onClick={() => discoverMutation.mutate()}
-              disabled={discoverMutation.isPending}
-              className="flex items-center gap-2 bg-surface-light hover:bg-surface text-text-primary border border-border px-5 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              {discoverMutation.isPending ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-              Load More
-            </button>
+      {/* Mode Tabs */}
+      <div className="flex gap-1 bg-surface border border-border rounded-xl p-1 w-fit">
+        <button
+          onClick={() => switchMode('search')}
+          className={clsx(
+            'flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all',
+            mode === 'search'
+              ? 'bg-gold text-background shadow-sm'
+              : 'text-text-secondary hover:text-text-primary hover:bg-surface-light',
           )}
-        </div>
+        >
+          <Search size={16} /> Search
+        </button>
+        <button
+          onClick={() => switchMode('discover')}
+          className={clsx(
+            'flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all',
+            mode === 'discover'
+              ? 'bg-gold text-background shadow-sm'
+              : 'text-text-secondary hover:text-text-primary hover:bg-surface-light',
+          )}
+        >
+          <Compass size={16} /> Discover
+        </button>
       </div>
 
-      {/* Results */}
+      {/* ══════════ SEARCH MODE ══════════ */}
+      {mode === 'search' && (
+        <div className="bg-surface border border-border rounded-xl p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="sm:col-span-3">
+              <label className="block text-sm text-text-secondary mb-1.5">Search TMDB</label>
+              <form onSubmit={handleSearch} className="flex gap-2">
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Type movie, show, or anime name..."
+                  className="flex-1 bg-surface-light border border-border rounded-lg px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  disabled={!searchQuery.trim() || searchMutation.isPending}
+                  className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                >
+                  {searchMutation.isPending ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                  Search
+                </button>
+              </form>
+            </div>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Content Type</label>
+              <select
+                value={contentType}
+                onChange={(e) => { setContentType(e.target.value); setResults([]); }}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+              >
+                {CONTENT_TYPES.map((ct) => (
+                  <option key={ct.value} value={ct.value}>{ct.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {totalResults > 0 && results.length > 0 && (
+            <p className="text-xs text-text-muted">
+              Showing {results.length} of {totalResults} results
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ══════════ DISCOVER MODE ══════════ */}
+      {mode === 'discover' && (
+        <div className="bg-surface border border-border rounded-xl p-6 space-y-4">
+          {/* Row 1: Content Type, Region, Year, Count */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Content Type</label>
+              <select
+                value={contentType}
+                onChange={(e) => { setContentType(e.target.value); resetPage(); }}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+              >
+                {CONTENT_TYPES.map((ct) => (
+                  <option key={ct.value} value={ct.value}>{ct.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Region</label>
+              <select
+                value={region}
+                onChange={(e) => { setRegion(e.target.value); resetPage(); }}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+              >
+                {REGIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Year</label>
+              <select
+                value={year}
+                onChange={(e) => { setYear(e.target.value); resetPage(); }}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+              >
+                <option value="">All Years</option>
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Count</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={count}
+                onChange={(e) => { setCount(Math.max(1, Math.min(100, Number(e.target.value) || 1))); resetPage(); }}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+                placeholder="e.g. 10"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Language / Dubbed */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Language / Dubbed</label>
+              <select
+                value={dubbed}
+                onChange={(e) => { setDubbed(e.target.value); resetPage(); }}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+              >
+                {DUBBED_OPTIONS.map((d) => (
+                  <option key={d.value} value={d.value}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Row 3: Genre Multi-Select */}
+          <div>
+            <label className="block text-sm text-text-secondary mb-2">Genres {selectedGenres.length > 0 && `(${selectedGenres.length} selected)`}</label>
+            <div className="flex flex-wrap gap-2">
+              {GENRES.map((g) => {
+                const active = selectedGenres.includes(g.id);
+                return (
+                  <button
+                    key={g.id}
+                    onClick={() => { toggleGenre(g.id); resetPage(); }}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                      active
+                        ? 'bg-gold text-background border-gold'
+                        : 'bg-surface-light text-text-secondary border-border hover:border-gold/50',
+                    )}
+                  >
+                    {g.name}
+                    {active && <X size={12} className="inline ml-1 -mr-0.5" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { resetPage(); discoverMutation.mutate(); }}
+              disabled={discoverMutation.isPending}
+              className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              {discoverMutation.isPending ? <Loader2 size={18} className="animate-spin" /> : <Compass size={18} />}
+              {discoverMutation.isPending ? 'Fetching...' : 'Discover'}
+            </button>
+            {results.length > 0 && (
+              <button
+                onClick={() => discoverMutation.mutate()}
+                disabled={discoverMutation.isPending}
+                className="flex items-center gap-2 bg-surface-light hover:bg-surface text-text-primary border border-border px-5 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {discoverMutation.isPending ? <Loader2 size={18} className="animate-spin" /> : <Compass size={18} />}
+                Load More
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ RESULTS (shared) ══════════ */}
       {results.length > 0 && (
         <div className="space-y-4">
           {/* Action bar */}
@@ -404,23 +525,41 @@ export default function TmdbImportPage() {
               );
             })}
           </div>
+
+          {/* Load More for search */}
+          {mode === 'search' && results.length < totalResults && (
+            <div className="flex justify-center">
+              <button
+                onClick={() => searchMutation.mutate(searchPage)}
+                disabled={searchMutation.isPending}
+                className="flex items-center gap-2 bg-surface-light hover:bg-surface text-text-primary border border-border px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {searchMutation.isPending ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                Load More Results
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Empty state */}
-      {results.length === 0 && !discoverMutation.isPending && (
+      {results.length === 0 && !isLoading && (
         <div className="bg-surface border border-border rounded-xl p-12 text-center">
           <Search size={48} className="mx-auto text-text-secondary/30 mb-4" />
           <p className="text-text-secondary">
-            Select filters and click Discover to browse TMDB. Click Discover again or Load More for fresh results.
+            {mode === 'search'
+              ? 'Search for any movie, TV show, web series, or anime by name.'
+              : 'Select filters and click Discover to browse TMDB.'}
           </p>
         </div>
       )}
 
-      {discoverMutation.isPending && (
+      {isLoading && results.length === 0 && (
         <div className="bg-surface border border-border rounded-xl p-12 text-center">
           <Loader2 size={48} className="mx-auto text-gold animate-spin mb-4" />
-          <p className="text-text-secondary">Fetching from TMDB...</p>
+          <p className="text-text-secondary">
+            {mode === 'search' ? 'Searching TMDB...' : 'Fetching from TMDB...'}
+          </p>
         </div>
       )}
     </div>

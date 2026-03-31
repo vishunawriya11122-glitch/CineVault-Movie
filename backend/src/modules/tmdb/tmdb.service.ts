@@ -165,6 +165,55 @@ export class TmdbService {
     };
   }
 
+  /** Search TMDB by query string */
+  async search(opts: {
+    query: string;
+    contentType: 'movies' | 'shows' | 'anime' | 'webseries';
+    page?: number;
+  }): Promise<{ items: TmdbPreviewItem[]; nextPage: number; totalResults: number }> {
+    const { query, contentType } = opts;
+    const page = opts.page || 1;
+    if (!query?.trim()) throw new BadRequestException('Search query is required');
+
+    const mediaType = contentType === 'movies' ? 'movie' : 'tv';
+    const params: Record<string, string> = {
+      query: query.trim(),
+      page: String(page),
+      language: 'en-US',
+      include_adult: 'false',
+    };
+
+    const data = await this.tmdbGet(`/search/${mediaType}`, params);
+    let results = data.results ?? [];
+
+    // For anime, filter to animation genre only
+    if (contentType === 'anime') {
+      results = results.filter((r: any) => (r.genre_ids ?? []).includes(16));
+    }
+
+    // Check which are already imported
+    const tmdbIds = results.map((r: any) => String(r.id));
+    const existing = await this.movieModel.find({ tmdbId: { $in: tmdbIds } }).select('tmdbId');
+    const existingSet = new Set(existing.map((m) => m.tmdbId));
+
+    return {
+      items: results.map((r: any) => ({
+        tmdbId: r.id,
+        title: r.title ?? r.name ?? '',
+        overview: r.overview ?? '',
+        posterUrl: r.poster_path ? `${TMDB_IMG}/w500${r.poster_path}` : null,
+        backdropUrl: r.backdrop_path ? `${TMDB_IMG}/w1280${r.backdrop_path}` : null,
+        releaseDate: r.release_date ?? r.first_air_date ?? '',
+        rating: r.vote_average ?? 0,
+        genreNames: (r.genre_ids ?? []).map((id: number) => GENRE_MAP[id] ?? 'Other').filter(Boolean),
+        originalLanguage: r.original_language ?? '',
+        alreadyImported: existingSet.has(String(r.id)),
+      })),
+      nextPage: page + 1,
+      totalResults: data.total_results ?? 0,
+    };
+  }
+
   /** Import selected items from TMDB into the database */
   async importItems(
     tmdbIds: number[],
