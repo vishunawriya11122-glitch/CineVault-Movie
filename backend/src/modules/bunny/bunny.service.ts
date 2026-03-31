@@ -3,6 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Movie, MovieDocument } from '../../schemas/movie.schema';
 import { Season, SeasonDocument, Episode, EpisodeDocument } from '../../schemas/series.schema';
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Bunny Stream library details
 const LIBRARY_ID = '628904';
@@ -62,11 +65,136 @@ export class BunnyService {
   private jobs = new Map<string, StreamProgress>();
   private readonly MAX_JOBS_HISTORY = 20;
 
+  // Google Drive API token cache
+  private driveAccessToken: string | null = null;
+  private driveTokenExpiry = 0;
+  private serviceAccountKey: any = null;
+
   constructor(
     @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
     @InjectModel(Season.name) private seasonModel: Model<SeasonDocument>,
     @InjectModel(Episode.name) private episodeModel: Model<EpisodeDocument>,
-  ) {}
+  ) {
+    this.loadServiceAccount();
+  }
+
+  private loadServiceAccount(): void {
+    try {
+      // Try multiple paths for the service account key
+      const possiblePaths = [
+        path.join(process.cwd(), 'gcp-service-account.json'),
+        path.join(__dirname, '..', '..', '..', 'gcp-service-account.json'),
+        path.join(__dirname, '..', '..', '..', '..', 'gcp-service-account.json'),
+      ];
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          this.serviceAccountKey = JSON.parse(fs.readFileSync(p, 'utf8'));
+          this.logger.log(`Loaded GCP service account from: ${p}`);
+          return;
+        }
+      }
+      this.logger.warn('GCP service account key not found — Drive API auth disabled, will fall back to worker');
+    } catch (err) {
+      this.logger.warn(`Failed to load GCP service account: ${err.message}`);
+    }
+  }
+
+  // ─── Google Drive API Authentication ─────────────────────────
+
+  private async getDriveAccessToken(): Promise<string> {
+    // Return cached token if still valid (with 5 min buffer)
+    if (this.driveAccessToken && Date.now() < this.driveTokenExpiry - 300000) {
+      return this.driveAccessToken;
+    }
+
+    if (!this.serviceAccountKey) {
+      throw new Error('No GCP service account key loaded');
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: this.serviceAccountKey.client_email,
+      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      aud: 'https://oauth2.googleapis.com/token',
+      iat: now,
+      exp: now + 3600,
+    };
+
+    // Create signed JWT
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signingInput = `${header}.${body}`;
+
+    const signer = crypto.createSign('RSA-SHA256');
+    signer.update(signingInput);
+    const signature = signer.sign(this.serviceAccountKey.private_key, 'base64url');
+
+    const jwt = `${signingInput}.${signature}`;
+
+    // Exchange JWT for access token
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+    });
+
+    if (!tokenRes.ok) {
+      const errText = await tokenRes.text();
+      throw new Error(`Google token exchange failed: ${tokenRes.status} ${errText}`);
+    }
+
+    const tokenData = (await tokenRes.json()) as { access_token: string; expires_in: number };
+    this.driveAccessToken = tokenData.access_token;
+    this.driveTokenExpiry = Date.now() + tokenData.expires_in * 1000;
+    this.logger.log('Google Drive API access token obtained');
+    return this.driveAccessToken;
+  }
+
+  // ─── Google Drive API: List Folder Contents ──────────────────
+
+  private async listDriveFolderViaApi(folderId: string): Promise<DriveFile[]> {
+    const token = await this.getDriveAccessToken();
+    const allFiles: DriveFile[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      let url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,size),nextPageToken&pageSize=1000`;
+      if (pageToken) url += `&pageToken=${pageToken}`;
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Drive API list failed: ${res.status} ${errText}`);
+      }
+
+      const data = (await res.json()) as { files: DriveFile[]; nextPageToken?: string };
+      allFiles.push(...(data.files || []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return allFiles;
+  }
+
+  // ─── Google Drive API: Download File ─────────────────────────
+
+  private async downloadDriveFileViaApi(fileId: string): Promise<Response> {
+    const token = await this.getDriveAccessToken();
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Drive API download failed for ${fileId}: ${res.status} ${errText}`);
+    }
+
+    return res;
+  }
 
   // ─── URL Builders ────────────────────────────────────────────
 
@@ -166,17 +294,30 @@ export class BunnyService {
     title: string,
     sourceUrl: string,
     collectionId?: string,
+    driveFileId?: string,
   ): Promise<BunnyVideo> {
     const video = await this.createVideo(title, collectionId);
 
     try {
-      this.logger.log(`[Stream] Downloading: ${sourceUrl.slice(0, 120)}...`);
+      // Resolve Drive file ID from URL if not passed directly
+      const fileId = driveFileId || this.extractDriveFileId(sourceUrl);
 
-      // Try the direct Google Drive download URL first for reliability
+      // ── Primary: Google Drive API v3 (authenticated via service account) ──
+      if (fileId && this.serviceAccountKey) {
+        this.logger.log(`[Stream] Downloading via Drive API: ${fileId}`);
+        try {
+          const downloadRes = await this.downloadDriveFileViaApi(fileId);
+          return await this.streamTooBunnyUpload(video.guid, downloadRes, video);
+        } catch (apiErr) {
+          this.logger.warn(`[Stream] Drive API download failed: ${apiErr.message}, trying fallbacks...`);
+        }
+      }
+
+      // ── Fallback 1: Direct Google Drive download URL ──
+      this.logger.log(`[Stream] Downloading (fallback): ${sourceUrl.slice(0, 120)}...`);
       let downloadUrl = sourceUrl;
-      const driveFileId = this.extractDriveFileId(sourceUrl);
-      if (driveFileId) {
-        downloadUrl = `https://drive.usercontent.google.com/download?id=${driveFileId}&export=download&confirm=t`;
+      if (fileId) {
+        downloadUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
       }
 
       const downloadRes = await fetch(downloadUrl, {
@@ -188,12 +329,11 @@ export class BunnyService {
         throw new Error(`Download failed: HTTP ${downloadRes.status}`);
       }
 
-      // Safety check: ensure we got a video, not an HTML confirmation page
       const ct = downloadRes.headers.get('content-type') || '';
       if (ct.includes('text/html')) {
-        // Google Drive returned confirmation page — try worker fallback
+        // ── Fallback 2: Worker proxy ──
         this.logger.warn(`[Stream] Drive returned HTML, falling back to worker proxy...`);
-        const workerUrl = driveFileId ? `${this.workerUrl}/stream/${driveFileId}` : sourceUrl;
+        const workerUrl = fileId ? `${this.workerUrl}/stream/${fileId}` : sourceUrl;
         const fallbackRes = await fetch(workerUrl, {
           redirect: 'follow',
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -203,14 +343,13 @@ export class BunnyService {
         }
         const fbCt = fallbackRes.headers.get('content-type') || '';
         if (fbCt.includes('text/html')) {
-          throw new Error('Cannot download file — Google Drive returned HTML page. Ensure file is public.');
+          throw new Error('Cannot download file — Google Drive returned HTML. Share the folder with the service account or make it public.');
         }
         return await this.streamTooBunnyUpload(video.guid, fallbackRes, video);
       }
 
       return await this.streamTooBunnyUpload(video.guid, downloadRes, video);
     } catch (err) {
-      // Clean up the empty video entry on Bunny
       try { await this.deleteVideo(video.guid); } catch {}
       throw err;
     }
@@ -504,10 +643,8 @@ export class BunnyService {
     if (!folderIdMatch) throw new Error('Invalid Google Drive folder URL');
     const folderId = folderIdMatch[1];
 
-    const listUrl = `${this.workerUrl}/list?id=${folderId}`;
-    const listRes = await fetch(listUrl);
-    if (!listRes.ok) throw new Error(`Folder scan failed: ${listRes.status}`);
-    const files: DriveFile[] = await listRes.json() as any;
+    // Use Google Drive API (authenticated) for folder listing
+    const files = await this.listDriveFolder(folderId);
 
     const videoFiles = files.filter(
       (f) => f.mimeType?.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov)$/i.test(f.name),
@@ -552,8 +689,7 @@ export class BunnyService {
       job.current = [...job.current.filter((c) => c !== `Episode ${epNum}`), `Episode ${epNum}`].slice(-PARALLEL_CONCURRENCY);
 
       try {
-        const streamUrl = `${this.workerUrl}/stream/${file.id}`;
-        const video = await this.downloadAndUploadToBunny(`${epTitle} - Episode ${epNum}`, streamUrl, collectionId);
+        const video = await this.downloadAndUploadToBunny(`${epTitle} - Episode ${epNum}`, '', collectionId, file.id);
 
         const hlsLink = this.hlsUrl(video.guid);
         const thumb = this.thumbnailUrl(video.guid);
@@ -742,11 +878,11 @@ export class BunnyService {
         job.current = [...job.current.filter((c) => c !== epLabel), epLabel].slice(-PARALLEL_CONCURRENCY);
 
         try {
-          const streamUrl = `${this.workerUrl}/stream/${ep.fileId}`;
           const video = await this.downloadAndUploadToBunny(
             `${ep.title} - S${scanned.seasonNumber}E${ep.episodeNumber}`,
-            streamUrl,
+            '',
             collectionId,
+            ep.fileId,
           );
 
           const hlsLink = this.hlsUrl(video.guid);
@@ -868,9 +1004,18 @@ export class BunnyService {
   }
 
   private async listDriveFolder(folderId: string): Promise<DriveFile[]> {
+    // Primary: Google Drive API v3 (service account auth)
+    if (this.serviceAccountKey) {
+      try {
+        return await this.listDriveFolderViaApi(folderId);
+      } catch (err) {
+        this.logger.warn(`Drive API list failed: ${err.message}, falling back to worker...`);
+      }
+    }
+    // Fallback: CF Worker HTML scraper
     const listUrl = `${this.workerUrl}/list?id=${folderId}`;
     const res = await fetch(listUrl);
-    if (!res.ok) throw new Error(`Folder scan failed: ${res.status}`);
+    if (!res.ok) throw new Error(`Folder scan failed (worker): ${res.status}`);
     return await res.json() as DriveFile[];
   }
 
