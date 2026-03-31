@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { GdriveFolderService, ScanResult } from './gdrive-folder.service';
@@ -25,8 +25,17 @@ export class GdriveFolderController {
   @Roles('admin', 'content_manager')
   @ApiOperation({ summary: 'Import scanned episodes into a series (Admin)' })
   async importToSeries(
-    @Body() body: { seriesId: string; scanResult: ScanResult },
+    @Body() body: { seriesId: string; scanResult: ScanResult; folderUrl?: string },
   ) {
-    return this.gdriveFolderService.importToSeries(body.seriesId, body.scanResult);
+    return this.gdriveFolderService.importToSeries(body.seriesId, body.scanResult, body.folderUrl);
+  }
+
+  @Post('refresh/:seriesId')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin', 'content_manager')
+  @ApiOperation({ summary: 'Re-scan Drive folder and add new episodes (Admin)' })
+  async refreshFromDrive(@Param('seriesId') seriesId: string) {
+    return this.gdriveFolderService.refreshFromDrive(seriesId);
   }
 }

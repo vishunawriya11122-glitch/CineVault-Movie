@@ -223,6 +223,10 @@ __decorate([
     (0, mongoose_1.Prop)({ default: 'none' }),
     __metadata("design:type", String)
 ], Movie.prototype, "hlsStatus", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", String)
+], Movie.prototype, "driveFolderUrl", void 0);
 exports.Movie = Movie = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], Movie);

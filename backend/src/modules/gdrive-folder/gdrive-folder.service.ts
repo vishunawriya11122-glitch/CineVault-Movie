@@ -1,6 +1,9 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { SeriesService } from '../series/series.service';
+import { Movie, MovieDocument } from '../../schemas/movie.schema';
 import { Types } from 'mongoose';
 
 interface DriveFile {
@@ -40,6 +43,7 @@ export class GdriveFolderService {
   constructor(
     private readonly configService: ConfigService,
     private readonly seriesService: SeriesService,
+    @InjectModel(Movie.name) private readonly movieModel: Model<MovieDocument>,
   ) {}
 
   /* ================================================================
@@ -48,11 +52,17 @@ export class GdriveFolderService {
 
   async scanFolder(folderUrl: string): Promise<ScanResult> {
     const folderId = this.extractFolderId(folderUrl);
+    const workerUrl = this.configService.get<string>('DRIVE_WORKER_URL');
     const apiKey = this.configService.get<string>('GOOGLE_API_KEY');
 
-    const topLevel = apiKey
-      ? await this.listViaApi(folderId, apiKey)
-      : await this.listViaScrape(folderId);
+    let topLevel: DriveFile[];
+    if (workerUrl) {
+      topLevel = await this.listViaWorker(folderId, workerUrl);
+    } else if (apiKey) {
+      topLevel = await this.listViaApi(folderId, apiKey);
+    } else {
+      topLevel = await this.listViaScrape(folderId);
+    }
 
     if (topLevel.length === 0) {
       throw new BadRequestException(
@@ -77,9 +87,14 @@ export class GdriveFolderService {
         const folder = sorted[i];
         const seasonNum = this.extractSeasonNumber(folder.name) ?? i + 1;
 
-        const subFiles = apiKey
-          ? await this.listViaApi(folder.id, apiKey)
-          : await this.listViaScrape(folder.id);
+        let subFiles: DriveFile[];
+        if (workerUrl) {
+          subFiles = await this.listViaWorker(folder.id, workerUrl);
+        } else if (apiKey) {
+          subFiles = await this.listViaApi(folder.id, apiKey);
+        } else {
+          subFiles = await this.listViaScrape(folder.id);
+        }
 
         const subVideos = subFiles.filter((f) => this.isVideo(f));
         if (subVideos.length > 0) {
@@ -111,9 +126,11 @@ export class GdriveFolderService {
   async importToSeries(
     seriesId: string,
     scanResult: ScanResult,
+    driveFolderUrl?: string,
   ): Promise<{ seasonsCreated: number; episodesCreated: number }> {
     let seasonsCreated = 0;
     let episodesCreated = 0;
+    const workerUrl = this.configService.get<string>('DRIVE_WORKER_URL');
 
     for (const scanned of scanResult.seasons) {
       const season = await this.seriesService.createSeason({
@@ -126,14 +143,105 @@ export class GdriveFolderService {
       const episodes = scanned.episodes.map((ep) => ({
         episodeNumber: ep.episodeNumber,
         title: ep.title,
-        streamingSources: [{ quality: 'original', url: ep.streamUrl, label: 'Google Drive', priority: 0 }],
+        streamingSources: [{
+          quality: 'original',
+          url: workerUrl
+            ? `${workerUrl}/stream/${ep.fileId}`
+            : ep.streamUrl,
+          label: 'Google Drive',
+          priority: 0,
+        }],
+        thumbnailUrl: ep.thumbnailUrl,
       }));
 
       await this.seriesService.createBulkEpisodes(season._id.toString(), episodes);
       episodesCreated += episodes.length;
     }
 
+    // Store the drive folder URL on the series for auto-refresh later
+    if (driveFolderUrl) {
+      await this.movieModel.findByIdAndUpdate(seriesId, { driveFolderUrl });
+    }
+
     return { seasonsCreated, episodesCreated };
+  }
+
+  /**
+   * Re-scan a series' linked Drive folder and add any missing episodes.
+   */
+  async refreshFromDrive(seriesId: string): Promise<{ newEpisodes: number }> {
+    const movie = await this.movieModel.findById(seriesId).lean();
+    if (!movie?.driveFolderUrl) {
+      throw new BadRequestException('No Drive folder linked to this series.');
+    }
+
+    const scan = await this.scanFolder(movie.driveFolderUrl);
+    const existingSeasons = await this.seriesService.getSeasons(seriesId);
+    const workerUrl = this.configService.get<string>('DRIVE_WORKER_URL');
+    let newEpisodes = 0;
+
+    for (const scanned of scan.seasons) {
+      // Find existing season or create new one
+      let season = existingSeasons.find((s) => s.seasonNumber === scanned.seasonNumber);
+      if (!season) {
+        season = await this.seriesService.createSeason({
+          seriesId: new Types.ObjectId(seriesId) as any,
+          seasonNumber: scanned.seasonNumber,
+          title: scanned.folderName || `Season ${scanned.seasonNumber}`,
+        });
+      }
+
+      const existingEps = await this.seriesService.getEpisodes(season._id.toString());
+      const existingNums = new Set(existingEps.map((e) => e.episodeNumber));
+
+      const newEps = scanned.episodes
+        .filter((ep) => !existingNums.has(ep.episodeNumber))
+        .map((ep) => ({
+          episodeNumber: ep.episodeNumber,
+          title: ep.title,
+          streamingSources: [{
+            quality: 'original',
+            url: workerUrl
+              ? `${workerUrl}/stream/${ep.fileId}`
+              : ep.streamUrl,
+            label: 'Google Drive',
+            priority: 0,
+          }],
+          thumbnailUrl: ep.thumbnailUrl,
+        }));
+
+      if (newEps.length > 0) {
+        await this.seriesService.createBulkEpisodes(season._id.toString(), newEps);
+        newEpisodes += newEps.length;
+      }
+    }
+
+    return { newEpisodes };
+  }
+
+  /* ================================================================
+   *  CLOUDFLARE WORKER INDEX (best — no API key, works from any IP)
+   * ================================================================ */
+
+  private async listViaWorker(folderId: string, workerUrl: string): Promise<DriveFile[]> {
+    const url = `${workerUrl}/list?id=${folderId}`;
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      const text = await res.text();
+      this.logger.error(`Worker error: ${res.status} ${text}`);
+      throw new BadRequestException(
+        'Drive Worker failed to list folder. Ensure the folder is public.',
+      );
+    }
+
+    const data = (await res.json()) as Array<{ id: string; name: string; mimeType: string }>;
+
+    if (Array.isArray(data) && 'error' in data) {
+      throw new BadRequestException((data as any).error);
+    }
+
+    return data.map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType }));
   }
 
   /* ================================================================

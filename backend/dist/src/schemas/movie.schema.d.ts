@@ -86,6 +86,7 @@ export declare class Movie {
     videoQuality: string;
     hlsUrl: string;
     hlsStatus: string;
+    driveFolderUrl: string;
 }
 export declare const MovieSchema: import("mongoose").Schema<Movie, import("mongoose").Model<Movie, any, any, any, Document<unknown, any, Movie, any, {}> & Movie & {
     _id: import("mongoose").Types.ObjectId;

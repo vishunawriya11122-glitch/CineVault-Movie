@@ -166,6 +166,9 @@ export class Movie {
 
   @Prop({ default: 'none' })
   hlsStatus: string; // none, processing, completed, failed
+
+  @Prop()
+  driveFolderUrl: string; // Google Drive folder link for auto-indexing episodes
 }
 
 export const MovieSchema = SchemaFactory.createForClass(Movie);
