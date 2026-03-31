@@ -279,8 +279,7 @@ fun HomeScreen(
             AnimatedVisibility(
                 visible = popupVisible,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 80.dp),
+                    .align(Alignment.BottomCenter),
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             ) {
