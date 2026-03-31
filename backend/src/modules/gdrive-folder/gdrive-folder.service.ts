@@ -177,31 +177,141 @@ export class GdriveFolderService {
   }
 
   /* ================================================================
-   *  HTML SCRAPING FALLBACK (no API key needed — best effort)
+   *  3-LAYER SCRAPING (no API key — tries multiple endpoints)
    * ================================================================ */
 
   private async listViaScrape(folderId: string): Promise<DriveFile[]> {
-    const url = `https://drive.google.com/drive/folders/${folderId}`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-      redirect: 'follow',
-    });
-
-    if (!res.ok) {
-      throw new BadRequestException(
-        `Could not access folder (HTTP ${res.status}). Ensure the folder is shared as "Anyone with the link".`,
-      );
+    // Layer 1: Embedded folder view — lightweight HTML table with direct links
+    try {
+      const url = `https://drive.google.com/embeddedfolderview?id=${folderId}#list`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          Accept: 'text/html',
+        },
+        redirect: 'follow',
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const files = this.parseEmbeddedHtml(html, folderId);
+        if (files.length > 0) {
+          this.logger.log(`Layer 1 (embedded view) → ${files.length} items`);
+          return files;
+        }
+      } else {
+        this.logger.warn(`Layer 1 HTTP ${res.status}`);
+      }
+    } catch (e) {
+      this.logger.warn(`Layer 1 failed: ${e.message}`);
     }
 
-    const html = await res.text();
-    return this.parseHtml(html);
+    // Layer 2: Standard Drive folder page (?usp=sharing) — JS blob parsing
+    try {
+      const url = `https://drive.google.com/drive/folders/${folderId}?usp=sharing`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          Accept:
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Cache-Control': 'no-cache',
+        },
+        redirect: 'follow',
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const files = this.parseHtml(html);
+        if (files.length > 0) {
+          this.logger.log(`Layer 2 (standard page) → ${files.length} items`);
+          return files;
+        }
+      } else {
+        this.logger.warn(`Layer 2 HTTP ${res.status}`);
+      }
+    } catch (e) {
+      this.logger.warn(`Layer 2 failed: ${e.message}`);
+    }
+
+    // Layer 3: Alternate path (/drive/u/0/) with mobile-style headers
+    try {
+      const url = `https://drive.google.com/drive/u/0/folders/${folderId}`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+          Accept: 'text/html',
+          'Accept-Language': 'en',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+        },
+        redirect: 'follow',
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const files = this.parseHtml(html);
+        if (files.length > 0) {
+          this.logger.log(`Layer 3 (u/0 mobile) → ${files.length} items`);
+          return files;
+        }
+      } else {
+        this.logger.warn(`Layer 3 HTTP ${res.status}`);
+      }
+    } catch (e) {
+      this.logger.warn(`Layer 3 failed: ${e.message}`);
+    }
+
+    throw new BadRequestException(
+      'Could not list folder contents (all 3 layers failed). Ensure the folder is shared as "Anyone with the link".',
+    );
   }
+
+  /* -------- Embedded-view parser (Layer 1) -------- */
+
+  private parseEmbeddedHtml(html: string, parentFolderId: string): DriveFile[] {
+    const files: DriveFile[] = [];
+    const seen = new Set<string>();
+    let m: RegExpExecArray | null;
+
+    // Files: href="/file/d/FILE_ID/view…">filename</a>
+    const fileRe = /href="[^"]*\/file\/d\/([\w-]+)\/[^"]*"[^>]*>\s*([^<]+)/gi;
+    while ((m = fileRe.exec(html)) !== null) {
+      const id = m[1];
+      const name = m[2].trim();
+      if (!seen.has(id)) {
+        seen.add(id);
+        files.push({ id, name, mimeType: this.guessMime(name) });
+      }
+    }
+
+    // Subfolders: href="…/folders/FOLDER_ID…">foldername</a>
+    const folderRe = /href="[^"]*\/folders\/([\w-]+)[^"]*"[^>]*>\s*([^<]+)/gi;
+    while ((m = folderRe.exec(html)) !== null) {
+      const id = m[1];
+      const name = m[2].trim();
+      if (!seen.has(id) && id !== parentFolderId) {
+        seen.add(id);
+        files.push({ id, name, mimeType: 'application/vnd.google-apps.folder' });
+      }
+    }
+
+    // data-id attribute fallback
+    const dataRe = /data-id="([\w-]{20,})"[^>]*?aria-label="([^"]+)"/gi;
+    while ((m = dataRe.exec(html)) !== null) {
+      const id = m[1];
+      const name = m[2].trim();
+      if (!seen.has(id) && id !== parentFolderId) {
+        seen.add(id);
+        files.push({ id, name, mimeType: this.guessMime(name) });
+      }
+    }
+
+    return files;
+  }
+
+  /* -------- Standard-page parser (Layer 2 & 3) -------- */
 
   private parseHtml(html: string): DriveFile[] {
     // Unescape hex- and unicode-encoded chars that Google embeds in <script> tags
@@ -215,18 +325,14 @@ export class GdriveFolderService {
 
     const files: DriveFile[] = [];
     const seen = new Set<string>();
+    let m: RegExpExecArray | null;
 
     // Pattern 1: ["FILE_ID",["FILENAME"]]
     const p1 = /\["([\w-]{25,})",\["([^"]+)"\]/g;
-    let m: RegExpExecArray | null;
     while ((m = p1.exec(unescaped)) !== null) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        files.push({
-          id: m[1],
-          name: m[2],
-          mimeType: this.guessMime(m[2]),
-        });
+        files.push({ id: m[1], name: m[2], mimeType: this.guessMime(m[2]) });
       }
     }
 
@@ -234,32 +340,54 @@ export class GdriveFolderService {
     if (files.length === 0) {
       const p2 = /\["([\w-]{25,})","([^"]+)"/g;
       while ((m = p2.exec(unescaped)) !== null) {
-        if (
-          !seen.has(m[1]) &&
-          !m[2].startsWith('http') &&
-          m[2].length < 200
-        ) {
+        if (!seen.has(m[1]) && !m[2].startsWith('http') && m[2].length < 200) {
           seen.add(m[1]);
-          files.push({
-            id: m[1],
-            name: m[2],
-            mimeType: this.guessMime(m[2]),
-          });
+          files.push({ id: m[1], name: m[2], mimeType: this.guessMime(m[2]) });
         }
       }
     }
 
-    // Pattern 3: data-id attribute (embedded folder view)
+    // Pattern 3: data-id attribute
     if (files.length === 0) {
-      const p3 = /data-id="([\w-]{25,})"[^>]*>[\s\S]*?class="[^"]*entry-title[^"]*"[^>]*>([^<]+)</g;
+      const p3 = /data-id="([\w-]{25,})"[^>]*>[\s\S]*?class="[^"]*entry-title[^"]*"[^>]*>([^<]+)/g;
       while ((m = p3.exec(html)) !== null) {
         if (!seen.has(m[1])) {
           seen.add(m[1]);
-          files.push({
-            id: m[1],
-            name: m[2].trim(),
-            mimeType: this.guessMime(m[2].trim()),
-          });
+          files.push({ id: m[1], name: m[2].trim(), mimeType: this.guessMime(m[2].trim()) });
+        }
+      }
+    }
+
+    // Pattern 4: AF_initDataCallback data blobs (modern Drive UI)
+    if (files.length === 0) {
+      const initRe = /AF_initDataCallback\(\{[^}]*data:([\s\S]*?)\}\s*\)\s*;/g;
+      while ((m = initRe.exec(html)) !== null) {
+        const blob = m[1];
+        const idNameRe = /"([\w-]{25,})"[\s,]*"([^"]{1,200})"/g;
+        let sm: RegExpExecArray | null;
+        while ((sm = idNameRe.exec(blob)) !== null) {
+          if (!seen.has(sm[1]) && !sm[2].startsWith('http')) {
+            seen.add(sm[1]);
+            files.push({ id: sm[1], name: sm[2], mimeType: this.guessMime(sm[2]) });
+          }
+        }
+      }
+    }
+
+    // Pattern 5: href-based file/folder links in HTML body
+    if (files.length === 0) {
+      const hrefFileRe = /href="[^"]*\/file\/d\/([\w-]+)\/[^"]*"[^>]*>\s*([^<]+)/gi;
+      while ((m = hrefFileRe.exec(html)) !== null) {
+        if (!seen.has(m[1])) {
+          seen.add(m[1]);
+          files.push({ id: m[1], name: m[2].trim(), mimeType: this.guessMime(m[2].trim()) });
+        }
+      }
+      const hrefFolderRe = /href="[^"]*\/folders\/([\w-]+)[^"]*"[^>]*>\s*([^<]+)/gi;
+      while ((m = hrefFolderRe.exec(html)) !== null) {
+        if (!seen.has(m[1])) {
+          seen.add(m[1]);
+          files.push({ id: m[1], name: m[2].trim(), mimeType: 'application/vnd.google-apps.folder' });
         }
       }
     }
