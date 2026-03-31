@@ -1,6 +1,7 @@
 package com.cinevault.app.ui.components
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -91,16 +92,16 @@ fun MovieCard(
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
                     shape = RoundedCornerShape(4.dp),
-                    color = Color.White.copy(alpha = 0.15f),
+                    color = Color(0xFF3A3A3A),
+                    border = BorderStroke(0.8.dp, Color.Black),
                 ) {
                     Text(
                         langLabel,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                         style = CineVaultTheme.typography.labelSmall,
                         fontSize = 7.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontStyle = FontStyle.Italic,
-                        color = Color.White.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
                         letterSpacing = 0.3.sp,
                     )
                 }
@@ -473,16 +474,16 @@ fun SquareMovieCard(
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
                     shape = RoundedCornerShape(4.dp),
-                    color = Color.White.copy(alpha = 0.15f),
+                    color = Color(0xFF3A3A3A),
+                    border = BorderStroke(0.8.dp, Color.Black),
                 ) {
                     Text(
                         langLabel,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                         style = CineVaultTheme.typography.labelSmall,
                         fontSize = 7.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontStyle = FontStyle.Italic,
-                        color = Color.White.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
                         letterSpacing = 0.3.sp,
                     )
                 }
@@ -605,16 +606,16 @@ fun LargeMovieCard(
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
                     shape = RoundedCornerShape(4.dp),
-                    color = Color.White.copy(alpha = 0.15f),
+                    color = Color(0xFF3A3A3A),
+                    border = BorderStroke(0.8.dp, Color.Black),
                 ) {
                     Text(
                         langLabel,
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         style = CineVaultTheme.typography.labelSmall,
                         fontSize = 7.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontStyle = FontStyle.Italic,
-                        color = Color.White.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
                         letterSpacing = 0.3.sp,
                     )
                 }
@@ -700,14 +701,14 @@ fun TrendingMovieCard(
 ) {
     Column(
         modifier = modifier
-            .width(150.dp)
+            .width(135.dp)
             .clickable { onClick(movie.id) }
     ) {
         // Netflix-style: Large number on left, poster overlapping on right
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(195.dp)
+                .height(175.dp)
         ) {
             // Large ranking number — outline stroke (behind poster)
             Text(
@@ -716,7 +717,7 @@ fun TrendingMovieCard(
                     .align(Alignment.BottomStart)
                     .offset(x = (-4).dp, y = 12.dp),
                 style = TextStyle(
-                    fontSize = 110.sp,
+                    fontSize = 100.sp,
                     fontWeight = FontWeight.Black,
                     fontStyle = FontStyle.Italic,
                     letterSpacing = (-6).sp,
@@ -735,7 +736,7 @@ fun TrendingMovieCard(
                     .align(Alignment.BottomStart)
                     .offset(x = (-4).dp, y = 12.dp),
                 style = TextStyle(
-                    fontSize = 110.sp,
+                    fontSize = 100.sp,
                     fontWeight = FontWeight.Black,
                     fontStyle = FontStyle.Italic,
                     letterSpacing = (-6).sp,
@@ -752,7 +753,7 @@ fun TrendingMovieCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .width(if (rank < 10) 115.dp else 105.dp)
+                    .width(if (rank < 10) 100.dp else 95.dp)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(12.dp))
                     .background(CineVaultTheme.colors.surface)
@@ -772,14 +773,15 @@ fun TrendingMovieCard(
                             .align(Alignment.TopEnd)
                             .padding(6.dp),
                         shape = RoundedCornerShape(4.dp),
-                        color = CineVaultTheme.colors.accentGold.copy(alpha = 0.85f),
+                        color = Color(0xFF3A3A3A),
+                        border = BorderStroke(0.8.dp, Color.Black),
                     ) {
                         Text(
                             langLabel,
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                             fontSize = 7.sp,
                             fontWeight = FontWeight.Bold,
-                            color = CineVaultTheme.colors.background,
+                            color = Color.White,
                             letterSpacing = 0.3.sp,
                         )
                     }

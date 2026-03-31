@@ -925,7 +925,7 @@ fun PremiumMovieCard(
 ) {
     Column(
         modifier = Modifier
-            .width(130.dp)
+            .width(115.dp)
             .clickable(onClick = onClick)
     ) {
         Box(
@@ -966,15 +966,15 @@ fun PremiumMovieCard(
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
                     shape = RoundedCornerShape(4.dp),
-                    color = Color.White.copy(alpha = 0.15f),
+                    color = Color(0xFF3A3A3A),
+                    border = BorderStroke(0.8.dp, Color.Black),
                 ) {
                     Text(
                         langLabel,
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         fontSize = 7.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontStyle = FontStyle.Italic,
-                        color = Color.White.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
                         letterSpacing = 0.3.sp,
                     )
                 }
