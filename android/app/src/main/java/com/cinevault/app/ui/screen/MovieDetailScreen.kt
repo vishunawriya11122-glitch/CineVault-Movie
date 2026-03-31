@@ -1490,9 +1490,8 @@ private fun YouTubeTrailerPlayer(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    var isPlaying by remember { mutableStateOf(true) }
+    var isMuted by remember { mutableStateOf(true) }
     var is2x by remember { mutableStateOf(false) }
-    var showControls by remember { mutableStateOf(false) }
 
     val webView = remember(videoId) {
         android.webkit.WebView(context).apply {
@@ -1504,16 +1503,10 @@ private fun YouTubeTrailerPlayer(
             settings.useWideViewPort = true
             webChromeClient = android.webkit.WebChromeClient()
 
-            // JS → Kotlin bridge for player state
+            // JS → Kotlin bridge for mute state sync
             addJavascriptInterface(object {
                 @android.webkit.JavascriptInterface
-                fun onStateChange(state: Int) {
-                    // YT states: 0=ended, 1=playing, 2=paused, 3=buffering
-                    when (state) {
-                        1 -> isPlaying = true
-                        2 -> isPlaying = false
-                    }
-                }
+                fun onMuteChange(muted: Boolean) { isMuted = muted }
             }, "Android")
 
             val html = """
@@ -1530,20 +1523,22 @@ function onYouTubeIframeAPIReady(){
   player=new YT.Player('player',{
     width:'100%',height:'100%',
     videoId:'${videoId}',
-    playerVars:{autoplay:1,controls:0,loop:1,
+    playerVars:{
+      autoplay:1,mute:1,controls:1,loop:1,
       playlist:'${videoId}',playsinline:1,
-      rel:0,modestbranding:1,showinfo:0,fs:0,iv_load_policy:3},
+      rel:0,modestbranding:1,showinfo:0,fs:0,iv_load_policy:3,
+      cc_load_policy:0
+    },
     events:{
-      onReady:function(e){e.target.playVideo();},
+      onReady:function(e){e.target.mute();e.target.playVideo();},
       onStateChange:function(e){
-        Android.onStateChange(e.data);
         if(e.data===0){e.target.seekTo(0);e.target.playVideo();}
       }
     }
   });
 }
-function doPause(){if(player)player.pauseVideo();}
-function doPlay(){if(player)player.playVideo();}
+function doMute(){if(player){player.mute();Android.onMuteChange(true);}}
+function doUnmute(){if(player){player.unMute();Android.onMuteChange(false);}}
 function doSpeed(r){if(player)player.setPlaybackRate(r);}
 </script>
 </body></html>
@@ -1557,27 +1552,21 @@ function doSpeed(r){if(player)player.setPlaybackRate(r);}
         onDispose { webView.destroy() }
     }
 
-    // Auto-hide controls after 3 seconds
-    LaunchedEffect(showControls) {
-        if (showControls) {
-            kotlinx.coroutines.delay(3000)
-            showControls = false
-        }
-    }
-
     Box(modifier = modifier) {
+        // YouTube WebView — native controls=1 handles play/pause/seek
         AndroidView(
             factory = { webView },
             modifier = Modifier.fillMaxSize()
         )
 
-        // Touch gesture layer: tap = toggle controls, long press & hold = 2x speed
+        // Long press overlay for 2x speed (transparent, doesn't block YouTube controls)
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .fillMaxHeight(0.5f) // top half only — bottom half has YouTube controls
+                .align(Alignment.TopCenter)
                 .pointerInput(Unit) {
                     detectTapGestures(
-                        onTap = { showControls = !showControls },
                         onLongPress = {
                             is2x = true
                             webView.evaluateJavascript("doSpeed(2)", null)
@@ -1604,46 +1593,39 @@ function doSpeed(r){if(player)player.setPlaybackRate(r);}
                 color = Color.Black.copy(alpha = 0.7f),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 12.dp)
+                    .padding(top = 8.dp)
             ) {
                 Text(
-                    "2x",
+                    "⚡ 2x",
                     color = Color.White,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
                 )
             }
         }
 
-        // Play/Pause button (center)
-        if (showControls) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.3f)),
-                contentAlignment = Alignment.Center
-            ) {
-                IconButton(
-                    onClick = {
-                        if (isPlaying) {
-                            webView.evaluateJavascript("doPause()", null)
-                        } else {
-                            webView.evaluateJavascript("doPlay()", null)
-                        }
-                    },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                ) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
-                    )
+        // Mute/Unmute button — Netflix style (bottom-right)
+        IconButton(
+            onClick = {
+                if (isMuted) {
+                    webView.evaluateJavascript("doUnmute()", null)
+                } else {
+                    webView.evaluateJavascript("doMute()", null)
                 }
-            }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 8.dp, bottom = 8.dp)
+                .size(32.dp)
+                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+        ) {
+            Icon(
+                if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                contentDescription = if (isMuted) "Unmute" else "Mute",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
