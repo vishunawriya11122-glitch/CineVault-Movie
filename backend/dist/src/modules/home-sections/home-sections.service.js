@@ -108,6 +108,21 @@ let HomeSectionsService = HomeSectionsService_1 = class HomeSectionsService {
         if (result.created > 0) {
             this.logger.log(result.message);
         }
+        await this.autoReleaseUpcoming();
+        setInterval(() => this.autoReleaseUpcoming(), 60 * 60 * 1000);
+    }
+    async autoReleaseUpcoming() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const result = await this.movieModel.updateMany({
+            status: movie_schema_1.ContentStatus.UPCOMING,
+            releaseDate: { $lte: today },
+        }, {
+            $set: { status: movie_schema_1.ContentStatus.PUBLISHED },
+        });
+        if (result.modifiedCount > 0) {
+            this.logger.log(`Auto-released ${result.modifiedCount} upcoming title(s) to published`);
+        }
     }
     async getHomeFeed(section) {
         const filter = { isVisible: true };
@@ -131,7 +146,6 @@ let HomeSectionsService = HomeSectionsService_1 = class HomeSectionsService {
                 movies = await this.movieModel
                     .find(upFilter)
                     .sort({ releaseDate: 1, createdAt: -1 })
-                    .limit(section.maxItems)
                     .select('title posterUrl bannerUrl contentType contentRating genres releaseYear duration rating viewCount starRating videoQuality languages releaseDate');
                 feed.push({
                     id: section._id,

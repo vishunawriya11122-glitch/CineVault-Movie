@@ -102,6 +102,33 @@ export class HomeSectionsService implements OnModuleInit {
     if (result.created > 0) {
       this.logger.log(result.message);
     }
+
+    // Run auto-release on startup, then every hour
+    await this.autoReleaseUpcoming();
+    setInterval(() => this.autoReleaseUpcoming(), 60 * 60 * 1000);
+  }
+
+  /**
+   * Auto-release: any movie with status=UPCOMING and releaseDate <= today
+   * gets moved to PUBLISHED so it appears in Recently Added and correct category sections.
+   */
+  async autoReleaseUpcoming(): Promise<void> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const result = await this.movieModel.updateMany(
+      {
+        status: ContentStatus.UPCOMING,
+        releaseDate: { $lte: today },
+      },
+      {
+        $set: { status: ContentStatus.PUBLISHED },
+      },
+    );
+
+    if (result.modifiedCount > 0) {
+      this.logger.log(`Auto-released ${result.modifiedCount} upcoming title(s) to published`);
+    }
   }
 
   async getHomeFeed(section?: string): Promise<any[]> {
@@ -129,7 +156,6 @@ export class HomeSectionsService implements OnModuleInit {
         movies = await this.movieModel
           .find(upFilter)
           .sort({ releaseDate: 1, createdAt: -1 })
-          .limit(section.maxItems)
           .select('title posterUrl bannerUrl contentType contentRating genres releaseYear duration rating viewCount starRating videoQuality languages releaseDate');
 
         feed.push({

@@ -16,7 +16,7 @@ export class TmdbController {
   @Post('discover')
   @ApiOperation({ summary: 'Discover/preview content from TMDB with filters (Admin)' })
   async discover(@Body() body: TmdbDiscoverOptions) {
-    const count = Math.min(body.count || 20, 100);
+    const count = body.count || 20;
     return this.tmdbService.discover({ ...body, count });
   }
 

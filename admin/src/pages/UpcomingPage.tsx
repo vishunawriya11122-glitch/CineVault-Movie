@@ -59,6 +59,14 @@ const REGIONS = [
   { value: 'turkish', label: 'Turkish' },
 ];
 
+const DUBBED_OPTIONS = [
+  { value: '', label: 'Original Language' },
+  { value: 'hi', label: 'Hindi Dubbed' },
+  { value: 'en', label: 'English Dubbed' },
+  { value: 'ta', label: 'Tamil Dubbed' },
+  { value: 'te', label: 'Telugu Dubbed' },
+];
+
 const GENRES = [
   { id: 28, name: 'Action' },
   { id: 12, name: 'Adventure' },
@@ -92,6 +100,7 @@ export default function UpcomingPage() {
   const [contentType, setContentType] = useState('movies');
   const [region, setRegion] = useState('hollywood');
   const [count, setCount] = useState(20);
+  const [dubbedLang, setDubbedLang] = useState('');
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
   const [nextPage, setNextPage] = useState(1);
   const [results, setResults] = useState<TmdbPreviewItem[]>([]);
@@ -176,6 +185,7 @@ export default function UpcomingPage() {
       };
       if (selectedGenres.length > 0) body.genres = selectedGenres;
       if (selectedActors.length > 0) body.withCast = selectedActors.map((a) => a.id).join(',');
+      if (dubbedLang) body.withLanguage = dubbedLang;
       const { data } = await api.post('/tmdb/discover', body);
       return data as { items: TmdbPreviewItem[]; nextPage: number };
     },
@@ -425,7 +435,7 @@ export default function UpcomingPage() {
         <div className="space-y-6">
           {/* Filters */}
           <div className="bg-surface border border-border rounded-xl p-5 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <div>
                 <label className="block text-sm text-text-secondary mb-1">Content Type</label>
                 <select
@@ -459,8 +469,21 @@ export default function UpcomingPage() {
                   onChange={(e) => setCount(Number(e.target.value))}
                   className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
                 >
-                  {[10, 20, 40, 60].map((n) => (
+                  {[10, 20, 40, 60, 100, 200].map((n) => (
                     <option key={n} value={n}>{n} results</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">Language / Dubbed</label>
+                <select
+                  value={dubbedLang}
+                  onChange={(e) => setDubbedLang(e.target.value)}
+                  className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold"
+                >
+                  {DUBBED_OPTIONS.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
                   ))}
                 </select>
               </div>

@@ -8,6 +8,7 @@ export declare class HomeSectionsService implements OnModuleInit {
     private readonly logger;
     constructor(sectionModel: Model<HomeSectionDocument>, movieModel: Model<MovieDocument>);
     onModuleInit(): Promise<void>;
+    autoReleaseUpcoming(): Promise<void>;
     getHomeFeed(section?: string): Promise<any[]>;
     getAll(section?: string): Promise<HomeSectionDocument[]>;
     create(data: Partial<HomeSection>): Promise<HomeSectionDocument>;
