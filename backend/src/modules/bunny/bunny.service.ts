@@ -496,6 +496,57 @@ export class BunnyService {
     return { imported, skipped, episodes: results };
   }
 
+  // ─── Import Single Movie from Bunny Video ────────────────────
+  //
+  // User picks a single video from a Bunny collection and imports it
+  // as a new movie entry in the database.
+  //
+  async importMovieFromBunnyVideo(
+    videoId: string,
+    titleOverride?: string,
+  ): Promise<{ movieId: string; title: string; hlsUrl: string; status: string }> {
+    // Fetch video details from Bunny
+    const video = await this.getVideoStatus(videoId);
+    if (!video) throw new Error('Video not found in Bunny Stream');
+
+    const title = titleOverride || video.title || 'Untitled Movie';
+    const hlsLink = this.hlsUrl(video.guid);
+    const thumb = this.thumbnailUrl(video.guid);
+    const sources = this.buildStreamingSources(video.guid, video.availableResolutions || '');
+
+    // Check if a movie with this HLS URL already exists
+    const existing = await this.movieModel.findOne({ hlsUrl: hlsLink });
+    if (existing) {
+      // Update existing movie sources
+      existing.streamingSources = sources;
+      existing.hlsStatus = video.status === 4 ? 'completed' : 'processing';
+      await existing.save();
+      this.logger.log(`[Bunny Movie Import] Updated existing movie "${existing.title}" (${existing._id})`);
+      return { movieId: existing._id.toString(), title: existing.title, hlsUrl: hlsLink, status: 'updated' };
+    }
+
+    // Create new movie
+    const movie = await this.movieModel.create({
+      title,
+      synopsis: '',
+      posterUrl: thumb,
+      bannerUrl: thumb,
+      genres: [],
+      languages: [],
+      releaseYear: new Date().getFullYear(),
+      contentType: 'movie',
+      status: 'draft',
+      streamingSources: sources,
+      hlsUrl: hlsLink,
+      hlsStatus: video.status === 4 ? 'completed' : 'processing',
+      tags: [],
+      cast: [],
+    });
+
+    this.logger.log(`[Bunny Movie Import] Created movie "${title}" (${movie._id})`);
+    return { movieId: movie._id.toString(), title, hlsUrl: hlsLink, status: 'created' };
+  }
+
   // ─── Parallel Execution Helper ───────────────────────────────
 
   private async runParallel<T, R>(

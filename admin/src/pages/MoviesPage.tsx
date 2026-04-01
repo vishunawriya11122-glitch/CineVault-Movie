@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Trash2, Eye, Grid3x3, List, Play } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Grid3x3, List, Play, Cloud, X, Loader2, Check, Download, Film } from 'lucide-react';
 import { useState } from 'react';
 import api from '../lib/api';
 import type { Movie } from '../types';
@@ -13,6 +13,8 @@ export default function MoviesPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid');
+  const [showBunnyImport, setShowBunnyImport] = useState(false);
+  const [renamingMovie, setRenamingMovie] = useState<Movie | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['movies', page, statusFilter],
@@ -68,6 +70,13 @@ export default function MoviesPage() {
               <List size={18} />
             </button>
           </div>
+          <button
+            onClick={() => setShowBunnyImport(true)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+          >
+            <Cloud size={18} />
+            Import from Bunny
+          </button>
           <button
             onClick={() => navigate('/movies/new?section=movie')}
             className="flex items-center gap-2 bg-gold hover:bg-gold-light text-background px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
@@ -178,12 +187,22 @@ export default function MoviesPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          setRenamingMovie(movie);
+                        }}
+                        className="p-2 rounded-lg hover:bg-blue-500/10 text-text-secondary hover:text-blue-400 transition-colors"
+                        title="Rename"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           navigate(`/movies/${movie._id}/edit`);
                         }}
                         className="p-2 rounded-lg hover:bg-surface-light text-text-secondary hover:text-text-primary transition-colors"
-                        title="Edit"
+                        title="Edit Details"
                       >
-                        <Pencil size={14} />
+                        <Eye size={14} />
                       </button>
                       <button
                         onClick={(e) => {
@@ -277,6 +296,13 @@ export default function MoviesPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
                             <button
+                              onClick={() => setRenamingMovie(movie)}
+                              className="p-1.5 rounded-lg hover:bg-blue-500/10 text-text-secondary hover:text-blue-400 transition-colors"
+                              title="Rename"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
                               onClick={() => navigate(`/movies/${movie._id}`)}
                               className="p-1.5 rounded-lg hover:bg-gold/10 text-text-secondary hover:text-gold transition-colors"
                               title="Watch/View"
@@ -286,8 +312,9 @@ export default function MoviesPage() {
                             <button
                               onClick={() => navigate(`/movies/${movie._id}/edit`)}
                               className="p-1.5 rounded-lg hover:bg-surface-light text-text-secondary hover:text-text-primary transition-colors"
+                              title="Edit Details"
                             >
-                              <Pencil size={15} />
+                              <Film size={15} />
                             </button>
                             <button
                               onClick={() => {
@@ -296,6 +323,7 @@ export default function MoviesPage() {
                                 }
                               }}
                               className="p-1.5 rounded-lg hover:bg-error/10 text-text-secondary hover:text-error transition-colors"
+                              title="Delete"
                             >
                               <Trash2 size={15} />
                             </button>
@@ -329,6 +357,284 @@ export default function MoviesPage() {
           </div>
         </>
       )}
+
+      {/* Bunny Stream Import Modal */}
+      {showBunnyImport && (
+        <BunnyMovieImportModal
+          onClose={() => { setShowBunnyImport(false); queryClient.invalidateQueries({ queryKey: ['movies'] }); }}
+        />
+      )}
+
+      {/* Rename Movie Modal */}
+      {renamingMovie && (
+        <RenameMovieModal
+          movie={renamingMovie}
+          onClose={() => setRenamingMovie(null)}
+          onSaved={() => {
+            setRenamingMovie(null);
+            queryClient.invalidateQueries({ queryKey: ['movies'] });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Rename Movie Modal ──
+
+function RenameMovieModal({ movie, onClose, onSaved }: { movie: Movie; onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState(movie.title);
+  const [alternateTitle, setAlternateTitle] = useState(movie.alternateTitle || '');
+
+  const renameMutation = useMutation({
+    mutationFn: () => api.patch(`/movies/${movie._id}`, { title, alternateTitle: alternateTitle || undefined }),
+    onSuccess: () => { toast.success('Movie renamed'); onSaved(); },
+    onError: () => toast.error('Failed to rename movie'),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-lg">Rename Movie</h3>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-text-muted font-medium mb-1 block">Title</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted font-medium mb-1 block">Display Name / Alternate Title</label>
+            <input
+              value={alternateTitle}
+              onChange={(e) => setAlternateTitle(e.target.value)}
+              placeholder="Optional alternate display name"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary border border-border rounded-lg">Cancel</button>
+          <button
+            onClick={() => renameMutation.mutate()}
+            disabled={!title.trim() || renameMutation.isPending}
+            className="px-4 py-2 text-sm bg-gold text-background font-medium rounded-lg hover:bg-gold-light disabled:opacity-50"
+          >
+            {renameMutation.isPending ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bunny Movie Import Modal ──
+
+interface BunnyVideo {
+  guid: string;
+  title: string;
+  status: number;
+  length: number;
+  storageSize: number;
+  availableResolutions: string;
+  thumbnailFileName: string;
+}
+
+function BunnyMovieImportModal({ onClose }: { onClose: () => void }) {
+  const [selectedCollection, setSelectedCollection] = useState('');
+  const [selectedVideo, setSelectedVideo] = useState<BunnyVideo | null>(null);
+  const [customTitle, setCustomTitle] = useState('');
+
+  // Fetch collections
+  const { data: collections, isLoading: loadingCollections } = useQuery({
+    queryKey: ['bunny-collections'],
+    queryFn: async () => {
+      const { data } = await api.get('/bunny/stream/collections');
+      return data as { totalItems: number; items: { guid: string; name: string; videoCount: number }[] };
+    },
+  });
+
+  // Fetch videos in selected collection
+  const { data: videos, isLoading: loadingVideos } = useQuery({
+    queryKey: ['bunny-collection-videos', selectedCollection],
+    queryFn: async () => {
+      const { data } = await api.get(`/bunny/stream/collections/${selectedCollection}/videos`);
+      return data as { totalItems: number; items: BunnyVideo[] };
+    },
+    enabled: !!selectedCollection,
+  });
+
+  // Import single movie mutation
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedVideo) throw new Error('No video selected');
+      const { data } = await api.post('/bunny/stream/movie/import-bunny', {
+        videoId: selectedVideo.guid,
+        collectionId: selectedCollection,
+        title: customTitle.trim() || undefined,
+      });
+      return data as { movieId: string; title: string; hlsUrl: string; status: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`Movie "${data.title}" imported (${data.status})`);
+      setSelectedVideo(null);
+      setCustomTitle('');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Import failed'),
+  });
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+    return `${(bytes / 1024).toFixed(0)} KB`;
+  };
+
+  const statusLabel = (s: number) => {
+    const map: Record<number, string> = { 0: 'Created', 1: 'Uploaded', 2: 'Processing', 3: 'Transcoding', 4: 'Finished', 5: 'Error', 6: 'Upload Failed' };
+    return map[s] || 'Unknown';
+  };
+
+  const statusColor = (s: number) => {
+    if (s === 4) return 'text-green-400 bg-green-400/10';
+    if (s === 5 || s === 6) return 'text-red-400 bg-red-400/10';
+    return 'text-yellow-400 bg-yellow-400/10';
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h3 className="font-semibold text-lg flex items-center gap-2">
+            <Cloud size={20} className="text-purple-400" /> Import Movie from Bunny Stream
+          </h3>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+          {/* Step 1: Select Collection */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-text-secondary">Step 1: Select Collection</label>
+            {loadingCollections ? (
+              <div className="flex items-center gap-2 text-sm text-text-muted py-2"><Loader2 size={14} className="animate-spin" /> Loading collections...</div>
+            ) : (
+              <select
+                value={selectedCollection}
+                onChange={(e) => { setSelectedCollection(e.target.value); setSelectedVideo(null); }}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+              >
+                <option value="">-- Select a collection --</option>
+                {collections?.items?.map((c) => (
+                  <option key={c.guid} value={c.guid}>{c.name} ({c.videoCount} videos)</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Step 2: Select a Single Movie */}
+          {selectedCollection && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text-secondary">Step 2: Select a Movie</label>
+              {loadingVideos ? (
+                <div className="flex items-center gap-2 text-sm text-text-muted py-2"><Loader2 size={14} className="animate-spin" /> Loading videos...</div>
+              ) : videos?.items && videos.items.length > 0 ? (
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                  {videos.items.map((video) => (
+                    <div
+                      key={video.guid}
+                      onClick={() => { setSelectedVideo(video); setCustomTitle(video.title); }}
+                      className={clsx(
+                        'flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border',
+                        selectedVideo?.guid === video.guid
+                          ? 'border-purple-400 bg-purple-400/10 shadow-sm'
+                          : 'border-border hover:border-purple-400/40 hover:bg-surface-light/50'
+                      )}
+                    >
+                      {/* Thumbnail */}
+                      <div className="w-20 h-12 rounded-lg overflow-hidden bg-surface-light flex-shrink-0">
+                        <img
+                          src={`https://vz-f3b830f6-306.b-cdn.net/${video.guid}/${video.thumbnailFileName || 'thumbnail.jpg'}`}
+                          alt={video.title}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </div>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{video.title}</p>
+                        <p className="text-xs text-text-muted">
+                          {video.length > 0 && formatDuration(video.length)} · {formatSize(video.storageSize)}
+                          {video.availableResolutions && ` · ${video.availableResolutions}`}
+                        </p>
+                      </div>
+                      {/* Status */}
+                      <span className={clsx('text-[10px] px-2 py-0.5 rounded font-medium', statusColor(video.status))}>
+                        {statusLabel(video.status)}
+                      </span>
+                      {/* Selection indicator */}
+                      {selectedVideo?.guid === video.guid && (
+                        <Check size={16} className="text-purple-400 flex-shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-text-muted py-4 text-center">No videos in this collection</p>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Customize title and import */}
+          {selectedVideo && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <label className="text-sm font-medium text-text-secondary">Step 3: Import Movie</label>
+              <div>
+                <label className="text-xs text-text-muted font-medium mb-1 block">Movie Title</label>
+                <input
+                  value={customTitle}
+                  onChange={(e) => setCustomTitle(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                  placeholder="Enter movie title..."
+                />
+              </div>
+              <button
+                onClick={() => importMutation.mutate()}
+                disabled={importMutation.isPending}
+                className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+              >
+                {importMutation.isPending ? (
+                  <><Loader2 size={14} className="animate-spin" /> Importing...</>
+                ) : (
+                  <><Download size={14} /> Import This Movie</>
+                )}
+              </button>
+              {importMutation.isSuccess && importMutation.data && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-center gap-2 text-sm text-green-400">
+                  <Check size={16} />
+                  <span>Movie &quot;{importMutation.data.title}&quot; {importMutation.data.status === 'created' ? 'created as draft' : 'updated'} successfully!</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-border flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary border border-border rounded-lg">Close</button>
+        </div>
+      </div>
     </div>
   );
 }

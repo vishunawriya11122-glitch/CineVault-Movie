@@ -42,6 +42,18 @@ export default function SeriesPage() {
   const [showEditEpisode, setShowEditEpisode] = useState<Episode | null>(null);
   const [showBunnyStream, setShowBunnyStream] = useState<string | null>(null);
   const [showFolderImport, setShowFolderImport] = useState(false);
+  const [renamingSeriesId, setRenamingSeriesId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+
+  const renameSeries = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => api.patch(`/movies/${id}`, { title }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['series-list'] });
+      setRenamingSeriesId(null);
+      toast.success('Series renamed');
+    },
+    onError: () => toast.error('Failed to rename series'),
+  });
 
   // Fetch all series content (web_series + tv_show + anime — anime web series are stored as contentType='anime')
   const { data, isLoading } = useQuery({
@@ -143,11 +155,22 @@ export default function SeriesPage() {
               </div>
               <div className="px-2 py-2 flex items-center justify-end gap-1 border-t border-border bg-surface">
                 <button
-                  onClick={(e) => { e.stopPropagation(); navigate(`/movies/${s._id}/edit?section=${s.contentType === 'anime' ? 'anime' : 'series'}`); }}
-                  className="p-1.5 rounded-lg hover:bg-surface-light text-text-secondary hover:text-gold transition-colors"
-                  title="Edit series"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenamingSeriesId(s._id);
+                    setRenameTitle(s.title);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-blue-500/10 text-text-secondary hover:text-blue-400 transition-colors"
+                  title="Rename series"
                 >
                   <Pencil size={14} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate(`/movies/${s._id}/edit?section=${s.contentType === 'anime' ? 'anime' : 'series'}`); }}
+                  className="p-1.5 rounded-lg hover:bg-surface-light text-text-secondary hover:text-gold transition-colors"
+                  title="Edit series details"
+                >
+                  <Layers size={14} />
                 </button>
                 <button
                   onClick={(e) => {
@@ -214,6 +237,37 @@ export default function SeriesPage() {
           series={series}
           onClose={() => { setShowFolderImport(false); queryClient.invalidateQueries({ queryKey: ['series-list'] }); }}
         />
+      )}
+
+      {/* Rename Series Modal */}
+      {renamingSeriesId && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setRenamingSeriesId(null)}>
+          <div className="bg-surface border border-border rounded-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-lg">Rename Series</h3>
+              <button onClick={() => setRenamingSeriesId(null)} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted font-medium mb-1 block">Series Title</label>
+              <input
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setRenamingSeriesId(null)} className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary border border-border rounded-lg">Cancel</button>
+              <button
+                onClick={() => renameSeries.mutate({ id: renamingSeriesId, title: renameTitle })}
+                disabled={!renameTitle.trim() || renameSeries.isPending}
+                className="px-4 py-2 text-sm bg-gold text-background font-medium rounded-lg hover:bg-gold-light disabled:opacity-50"
+              >
+                {renameSeries.isPending ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -423,6 +477,20 @@ function SeasonRow({
     enabled: isExpanded,
   });
 
+  // ── Season Rename ──
+  const [isRenamingSeason, setIsRenamingSeason] = useState(false);
+  const [seasonTitle, setSeasonTitle] = useState(season.title);
+
+  const renameSeason = useMutation({
+    mutationFn: () => api.patch(`/series/seasons/${season._id}`, { title: seasonTitle }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['seasons'] });
+      setIsRenamingSeason(false);
+      toast.success('Season renamed');
+    },
+    onError: () => toast.error('Failed to rename season'),
+  });
+
   const deleteEpisode = useMutation({
     mutationFn: (id: string) => api.delete(`/series/episodes/${id}`),
     onSuccess: () => {
@@ -479,14 +547,47 @@ function SeasonRow({
     <div className="border-b border-border last:border-b-0">
       {/* Season Header */}
       <div className="flex items-center gap-3 px-6 py-3 hover:bg-surface-light/30 transition-colors">
-        <button onClick={onToggle} className="flex items-center gap-2 flex-1 text-left">
+        <button onClick={onToggle} className="flex items-center gap-2 flex-1 text-left min-w-0">
           {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          <span className="font-medium">Season {season.seasonNumber}</span>
-          {season.title && season.title !== `Season ${season.seasonNumber}` && (
-            <span className="text-text-secondary text-sm">— {season.title}</span>
+          {isRenamingSeason ? (
+            <form
+              onSubmit={(e) => { e.preventDefault(); renameSeason.mutate(); }}
+              className="flex items-center gap-2 flex-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                value={seasonTitle}
+                onChange={(e) => setSeasonTitle(e.target.value)}
+                className="bg-background border border-gold rounded-lg px-2 py-1 text-sm font-medium flex-1 min-w-0 focus:outline-none"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+              <button type="submit" disabled={renameSeason.isPending} className="text-green-400 hover:text-green-300 p-1" onClick={(e) => e.stopPropagation()}>
+                <Check size={14} />
+              </button>
+              <button type="button" onClick={(e) => { e.stopPropagation(); setIsRenamingSeason(false); setSeasonTitle(season.title); }} className="text-text-muted hover:text-text-primary p-1">
+                <X size={14} />
+              </button>
+            </form>
+          ) : (
+            <>
+              <span className="font-medium">Season {season.seasonNumber}</span>
+              {season.title && season.title !== `Season ${season.seasonNumber}` && (
+                <span className="text-text-secondary text-sm">— {season.title}</span>
+              )}
+              <span className="text-xs text-text-muted ml-2">{season.episodeCount} episodes</span>
+            </>
           )}
-          <span className="text-xs text-text-muted ml-2">{season.episodeCount} episodes</span>
         </button>
+        {!isRenamingSeason && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsRenamingSeason(true); setSeasonTitle(season.title); }}
+            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded bg-blue-400/10"
+            title="Rename Season"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
         <button
           onClick={() => setShowBunnyStream(showBunnyStream === season._id ? null : season._id)}
           className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded bg-purple-400/10"

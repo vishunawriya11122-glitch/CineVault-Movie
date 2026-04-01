@@ -208,4 +208,15 @@ export class BunnyController {
   ) {
     return this.bunnyService.importFromBunnyCollection(seasonId, body.collectionId);
   }
+
+  // ─── Import Single Movie from Bunny Collection ──────────────
+
+  @Post('stream/movie/import-bunny')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('admin')
+  async importMovieFromBunnyCollection(
+    @Body() body: { videoId: string; collectionId: string; title?: string },
+  ) {
+    return this.bunnyService.importMovieFromBunnyVideo(body.videoId, body.title);
+  }
 }
