@@ -41,6 +41,7 @@ export interface TmdbDiscoverOptions {
   year?: number;
   genres?: number[];
   withLanguage?: string; // dubbed language code e.g. 'hi' for Hindi dubbed
+  withCast?: string; // comma-separated TMDB person IDs to filter by actor
   page?: number; // starting page for fresh results
 }
 
@@ -84,7 +85,7 @@ export class TmdbService {
 
   /** Discover / preview content from TMDB without importing */
   async discover(opts: TmdbDiscoverOptions): Promise<{ items: TmdbPreviewItem[]; nextPage: number }> {
-    const { contentType, region, count, year, genres, withLanguage } = opts;
+    const { contentType, region, count, year, genres, withLanguage, withCast } = opts;
     const regionCfg = REGION_MAP[region.toLowerCase()] ?? { language: 'en-US' };
     const isAnime = contentType === 'anime';
     const mediaType = (contentType === 'movies') ? 'movie' : 'tv';
@@ -131,6 +132,11 @@ export class TmdbService {
         params.with_genres = [...existing, ...genres.map(String)].join(',');
       }
 
+      // Actor / Cast filter (comma-separated TMDB person IDs)
+      if (withCast) {
+        params.with_cast = withCast;
+      }
+
       // Dubbed language: find content available in this language
       if (withLanguage) {
         params.with_text_query = ''; // not needed, language param handles translation
@@ -163,6 +169,24 @@ export class TmdbService {
       })),
       nextPage,
     };
+  }
+
+  /** Search TMDB for a person (actor/director) by name */
+  async searchPerson(query: string): Promise<{ results: { id: number; name: string; profileUrl: string | null; knownFor: string }[] }> {
+    if (!query?.trim()) throw new BadRequestException('Search query is required');
+    const data = await this.tmdbGet('/search/person', {
+      query: query.trim(),
+      page: '1',
+      language: 'en-US',
+      include_adult: 'false',
+    });
+    const results = (data.results ?? []).slice(0, 10).map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      profileUrl: p.profile_path ? `${TMDB_IMG}/w185${p.profile_path}` : null,
+      knownFor: (p.known_for ?? []).map((k: any) => k.title ?? k.name ?? '').filter(Boolean).slice(0, 3).join(', '),
+    }));
+    return { results };
   }
 
   /** Search TMDB by query string */

@@ -20,6 +20,12 @@ export class TmdbController {
     return this.tmdbService.discover({ ...body, count });
   }
 
+  @Post('search-person')
+  @ApiOperation({ summary: 'Search TMDB for actors/directors by name (Admin)' })
+  async searchPerson(@Body() body: { query: string }) {
+    return this.tmdbService.searchPerson(body.query);
+  }
+
   @Post('search')
   @ApiOperation({ summary: 'Search TMDB by title/name (Admin)' })
   async search(

@@ -383,6 +383,11 @@ export default function MoviesPage() {
       {showBunnyImport && (
         <BunnyMovieImportModal
           onClose={() => { setShowBunnyImport(false); queryClient.invalidateQueries({ queryKey: ['movies'] }); }}
+          onImported={(movieId) => {
+            // Navigate to the imported movie so user can verify
+            navigate(`/movies/${movieId}`);
+            setShowBunnyImport(false);
+          }}
         />
       )}
 
@@ -467,11 +472,12 @@ interface BunnyVideo {
   thumbnailFileName: string;
 }
 
-function BunnyMovieImportModal({ onClose }: { onClose: () => void }) {
+function BunnyMovieImportModal({ onClose, onImported }: { onClose: () => void; onImported?: (movieId: string) => void }) {
   const [selectedCollection, setSelectedCollection] = useState('');
   const [selectedVideo, setSelectedVideo] = useState<BunnyVideo | null>(null);
   const [customTitle, setCustomTitle] = useState('');
   const [videoSearch, setVideoSearch] = useState('');
+  const queryClient = useQueryClient();
 
   // Fetch collections
   const { data: collections, isLoading: loadingCollections } = useQuery({
@@ -504,7 +510,10 @@ function BunnyMovieImportModal({ onClose }: { onClose: () => void }) {
       return data as { movieId: string; title: string; hlsUrl: string; status: string };
     },
     onSuccess: (data) => {
-      toast.success(`Movie "${data.title}" imported (${data.status})`);
+      const statusMsg = data.status === 'created' ? 'created as draft' : data.status === 'linked' ? 'linked' : 'updated';
+      toast.success(`Movie "${data.title}" ${statusMsg} successfully! HLS playback ready.`);
+      queryClient.invalidateQueries({ queryKey: ['movies'] });
+      if (onImported) onImported(data.movieId);
       setSelectedVideo(null);
       setCustomTitle('');
     },
@@ -655,9 +664,15 @@ function BunnyMovieImportModal({ onClose }: { onClose: () => void }) {
                 )}
               </button>
               {importMutation.isSuccess && importMutation.data && (
-                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-center gap-2 text-sm text-green-400">
-                  <Check size={16} />
-                  <span>Movie &quot;{importMutation.data.title}&quot; {importMutation.data.status === 'created' ? 'created as draft' : 'updated'} successfully!</span>
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-green-400 font-medium">
+                    <Check size={16} />
+                    <span>Movie &quot;{importMutation.data.title}&quot; {importMutation.data.status === 'created' ? 'created as draft' : importMutation.data.status === 'linked' ? 'linked' : 'updated'} successfully!</span>
+                  </div>
+                  <div className="text-xs text-text-muted bg-background rounded-lg p-2 break-all">
+                    <span className="font-medium text-green-400">HLS URL: </span>{importMutation.data.hlsUrl}
+                  </div>
+                  <p className="text-xs text-text-muted">Playback is ready. You can select another video to import or close this dialog.</p>
                 </div>
               )}
             </div>

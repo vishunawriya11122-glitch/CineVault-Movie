@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Search, Download, Check, CheckSquare, Square, Loader2, AlertCircle, X, Compass } from 'lucide-react';
+import { Search, Download, Check, CheckSquare, Square, Loader2, AlertCircle, X, Compass, User } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -79,6 +79,13 @@ const DUBBED_OPTIONS = [
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: currentYear - 1979 }, (_, i) => currentYear - i);
 
+interface TmdbPerson {
+  id: number;
+  name: string;
+  profileUrl: string | null;
+  knownFor: string;
+}
+
 export default function TmdbImportPage() {
   const [mode, setMode] = useState<'search' | 'discover'>('search');
   const [contentType, setContentType] = useState<string>('movies');
@@ -95,6 +102,15 @@ export default function TmdbImportPage() {
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
   const [dubbed, setDubbed] = useState<string>('');
   const [nextPage, setNextPage] = useState<number>(1);
+
+  // Actor search state
+  const [actorQuery, setActorQuery] = useState('');
+  const [actorResults, setActorResults] = useState<TmdbPerson[]>([]);
+  const [selectedActors, setSelectedActors] = useState<TmdbPerson[]>([]);
+  const [showActorDropdown, setShowActorDropdown] = useState(false);
+  const [searchingActors, setSearchingActors] = useState(false);
+  const actorSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const actorDropdownRef = useRef<HTMLDivElement>(null);
 
   // Shared state
   const [results, setResults] = useState<TmdbPreviewItem[]>([]);
@@ -124,6 +140,48 @@ export default function TmdbImportPage() {
     },
   });
 
+  // Actor search with debounce
+  const searchActors = async (query: string) => {
+    if (!query.trim()) { setActorResults([]); setShowActorDropdown(false); return; }
+    setSearchingActors(true);
+    try {
+      const { data } = await api.post('/tmdb/search-person', { query });
+      setActorResults(data.results || []);
+      setShowActorDropdown(true);
+    } catch { /* ignore */ }
+    setSearchingActors(false);
+  };
+
+  const handleActorQueryChange = (value: string) => {
+    setActorQuery(value);
+    if (actorSearchTimeout.current) clearTimeout(actorSearchTimeout.current);
+    actorSearchTimeout.current = setTimeout(() => searchActors(value), 400);
+  };
+
+  const addActor = (person: TmdbPerson) => {
+    if (!selectedActors.find((a) => a.id === person.id)) {
+      setSelectedActors((prev) => [...prev, person]);
+    }
+    setActorQuery('');
+    setActorResults([]);
+    setShowActorDropdown(false);
+  };
+
+  const removeActor = (personId: number) => {
+    setSelectedActors((prev) => prev.filter((a) => a.id !== personId));
+  };
+
+  // Close actor dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (actorDropdownRef.current && !actorDropdownRef.current.contains(e.target as Node)) {
+        setShowActorDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   // Discover mutation
   const discoverMutation = useMutation({
     mutationFn: async () => {
@@ -131,6 +189,7 @@ export default function TmdbImportPage() {
       if (year) body.year = Number(year);
       if (selectedGenres.length > 0) body.genres = selectedGenres;
       if (dubbed) body.withLanguage = dubbed;
+      if (selectedActors.length > 0) body.withCast = selectedActors.map((a) => a.id).join(',');
       const { data } = await api.post('/tmdb/discover', body);
       return data as { items: TmdbPreviewItem[]; nextPage: number };
     },
@@ -338,8 +397,8 @@ export default function TmdbImportPage() {
             </div>
           </div>
 
-          {/* Row 2: Language / Dubbed */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {/* Row 2: Language / Dubbed + Actor Search */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-text-secondary mb-1.5">Language / Dubbed</label>
               <select
@@ -351,6 +410,66 @@ export default function TmdbImportPage() {
                   <option key={d.value} value={d.value}>{d.label}</option>
                 ))}
               </select>
+            </div>
+            <div ref={actorDropdownRef} className="relative">
+              <label className="block text-sm text-text-secondary mb-1.5">Actor / Cast</label>
+              <div className="relative">
+                <input
+                  value={actorQuery}
+                  onChange={(e) => handleActorQueryChange(e.target.value)}
+                  onFocus={() => { if (actorResults.length > 0) setShowActorDropdown(true); }}
+                  placeholder="Search actor name (e.g. Ranveer Singh)"
+                  className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-gold pr-8"
+                />
+                {searchingActors ? (
+                  <Loader2 size={14} className="absolute right-3 top-3 text-text-muted animate-spin" />
+                ) : (
+                  <User size={14} className="absolute right-3 top-3 text-text-muted" />
+                )}
+              </div>
+              {/* Actor search dropdown */}
+              {showActorDropdown && actorResults.length > 0 && (
+                <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-surface border border-border rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                  {actorResults.map((person) => (
+                    <button
+                      key={person.id}
+                      onClick={() => addActor(person)}
+                      className={clsx(
+                        'w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-light transition-colors text-sm',
+                        selectedActors.find((a) => a.id === person.id) && 'opacity-50'
+                      )}
+                    >
+                      {person.profileUrl ? (
+                        <img src={person.profileUrl} alt={person.name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-surface-light flex items-center justify-center flex-shrink-0">
+                          <User size={14} className="text-text-muted" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{person.name}</p>
+                        {person.knownFor && <p className="text-xs text-text-muted truncate">{person.knownFor}</p>}
+                      </div>
+                      {selectedActors.find((a) => a.id === person.id) && (
+                        <Check size={14} className="text-gold ml-auto flex-shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Selected actors */}
+              {selectedActors.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {selectedActors.map((actor) => (
+                    <span key={actor.id} className="flex items-center gap-1 bg-gold/10 text-gold px-2.5 py-1 rounded-full text-xs font-medium">
+                      {actor.name}
+                      <button onClick={() => removeActor(actor.id)} className="hover:text-gold-light">
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

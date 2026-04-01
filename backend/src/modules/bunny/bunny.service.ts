@@ -505,7 +505,7 @@ export class BunnyService {
     videoId: string,
     titleOverride?: string,
     existingMovieId?: string,
-  ): Promise<{ movieId: string; title: string; hlsUrl: string; status: string }> {
+  ): Promise<{ movieId: string; title: string; hlsUrl: string; status: string; streamingSources: any[] }> {
     // Fetch video details from Bunny
     const video = await this.getVideoStatus(videoId);
     if (!video) throw new Error('Video not found in Bunny Stream');
@@ -526,7 +526,7 @@ export class BunnyService {
       if (!movie.bannerUrl || movie.bannerUrl === '') movie.bannerUrl = thumb;
       await movie.save();
       this.logger.log(`[Bunny Movie Import] Linked video to existing movie "${movie.title}" (${movie._id})`);
-      return { movieId: movie._id.toString(), title: movie.title, hlsUrl: hlsLink, status: 'linked' };
+      return { movieId: movie._id.toString(), title: movie.title, hlsUrl: hlsLink, status: 'linked', streamingSources: sources };
     }
 
     // Check if a movie with this HLS URL already exists
@@ -537,7 +537,7 @@ export class BunnyService {
       existing.hlsStatus = video.status === 4 ? 'completed' : 'processing';
       await existing.save();
       this.logger.log(`[Bunny Movie Import] Updated existing movie "${existing.title}" (${existing._id})`);
-      return { movieId: existing._id.toString(), title: existing.title, hlsUrl: hlsLink, status: 'updated' };
+      return { movieId: existing._id.toString(), title: existing.title, hlsUrl: hlsLink, status: 'updated', streamingSources: sources };
     }
 
     // Create new movie
@@ -559,7 +559,7 @@ export class BunnyService {
     });
 
     this.logger.log(`[Bunny Movie Import] Created movie "${title}" (${movie._id})`);
-    return { movieId: movie._id.toString(), title, hlsUrl: hlsLink, status: 'created' };
+    return { movieId: movie._id.toString(), title, hlsUrl: hlsLink, status: 'created', streamingSources: sources };
   }
 
   // ─── Parallel Execution Helper ───────────────────────────────

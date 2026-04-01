@@ -161,7 +161,7 @@ interface BunnyVideoItem {
   thumbnailFileName: string;
 }
 
-function BunnyCollectionImportSection({ movieId, movieTitle }: { movieId: string; movieTitle: string }) {
+function BunnyCollectionImportSection({ movieId, movieTitle, onImported }: { movieId: string; movieTitle: string; onImported?: (sources: any[]) => void }) {
   const queryClient = useQueryClient();
   const [selectedCollection, setSelectedCollection] = useState('');
   const [selectedVideo, setSelectedVideo] = useState<BunnyVideoItem | null>(null);
@@ -194,9 +194,12 @@ function BunnyCollectionImportSection({ movieId, movieTitle }: { movieId: string
       });
       return data;
     },
-    onSuccess: () => {
-      toast.success('Bunny video linked to this movie!');
+    onSuccess: (data) => {
+      toast.success('Bunny video linked! HLS streaming sources updated.');
       queryClient.invalidateQueries({ queryKey: ['movie', movieId] });
+      if (onImported && data.streamingSources) {
+        onImported(data.streamingSources);
+      }
       setSelectedVideo(null);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Import failed'),
@@ -1095,7 +1098,16 @@ export default function MovieFormPage() {
             <p className="text-sm text-text-secondary">
               Link an already-uploaded video from your Bunny.net collections. This sets the HLS streaming sources automatically.
             </p>
-            <BunnyCollectionImportSection movieId={id} movieTitle={form.title} />
+            <BunnyCollectionImportSection
+              movieId={id}
+              movieTitle={form.title}
+              onImported={(sources) => {
+                setForm((prev) => ({
+                  ...prev,
+                  streamingSources: sources.map((s: any) => ({ quality: s.quality || 'auto', url: s.url, label: s.label || '' })),
+                }));
+              }}
+            />
           </section>
         )}
 
