@@ -174,6 +174,7 @@ fun MovieDetailScreen(
 
     val hasTrailer = !movie.trailerUrl.isNullOrBlank()
     val isSeries = movie.contentType in listOf("web_series", "tv_show", "anime")
+    val isUpcoming = movie.status == "upcoming"
 
     // Resume watching logic
     val watchProgress = uiState.watchProgress
@@ -505,7 +506,8 @@ fun MovieDetailScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // ── Premium WATCH NOW / RESUME WATCHING button ──
+            // ── Premium WATCH NOW / RESUME WATCHING button (hidden for upcoming) ──
+            if (!isUpcoming) {
             Button(
                 onClick = {
                     if (movie.id.isNotBlank()) {
@@ -587,6 +589,7 @@ fun MovieDetailScreen(
                     )
                 }
             }
+            } // end if (!isUpcoming)
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -636,9 +639,9 @@ fun MovieDetailScreen(
             Spacer(modifier = Modifier.height(4.dp))
         }
 
-        // ── Episodes Section (for series content) ──
+        // ── Episodes Section (for series content, hidden for upcoming) ──
         val isSeries = movie.contentType in listOf("web_series", "tv_show", "anime")
-        if (isSeries && uiState.seasons.isNotEmpty()) {
+        if (isSeries && uiState.seasons.isNotEmpty() && !isUpcoming) {
             EpisodesSection(
                 seasons = uiState.seasons,
                 episodes = uiState.episodes,

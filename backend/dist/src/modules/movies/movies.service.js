@@ -62,7 +62,7 @@ let MoviesService = class MoviesService {
     async findPublishedById(id) {
         const movie = await this.movieModel.findOne({
             _id: id,
-            status: movie_schema_1.ContentStatus.PUBLISHED,
+            status: { $in: [movie_schema_1.ContentStatus.PUBLISHED, movie_schema_1.ContentStatus.UPCOMING] },
         });
         if (!movie)
             throw new common_1.NotFoundException('Content not found');

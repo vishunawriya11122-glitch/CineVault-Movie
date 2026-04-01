@@ -235,6 +235,17 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun removeFromWatchlist(contentId: String) {
+        viewModelScope.launch {
+            val profileId = sessionManager.activeProfileId.firstOrNull() ?: return@launch
+            try {
+                watchlistRepository.removeFromWatchlist(profileId, contentId)
+            } catch (e: Exception) {
+                Log.w("HomeViewModel", "Failed to remove from watchlist: ${e.message}")
+            }
+        }
+    }
+
     fun refresh() {
         _uiState.update { it.copy(isRefreshing = true) }
         val section = tabSection(_uiState.value.selectedTab)

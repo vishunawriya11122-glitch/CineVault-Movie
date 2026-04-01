@@ -190,6 +190,7 @@ fun HomeScreen(
                                         movies = section.items,
                                         onMovieClick = onMovieClick,
                                         onAddToList = { movieId -> onAddToWatchlist?.invoke(movieId) ?: viewModel.addToWatchlist(movieId) },
+                                        onRemoveFromList = { movieId -> viewModel.removeFromWatchlist(movieId) },
                                     )
                                 } else {
                                     HorizontalMovieRow(
@@ -1049,6 +1050,7 @@ fun UpcomingSection(
     movies: List<MovieDto>,
     onMovieClick: (String) -> Unit,
     onAddToList: (String) -> Unit,
+    onRemoveFromList: (String) -> Unit,
 ) {
     if (movies.isEmpty()) return
 
@@ -1066,6 +1068,7 @@ fun UpcomingSection(
                 movie = movie,
                 onClick = { onMovieClick(movie.id) },
                 onAddToList = { onAddToList(movie.id) },
+                onRemoveFromList = { onRemoveFromList(movie.id) },
             )
         }
     }
@@ -1076,8 +1079,9 @@ fun UpcomingMovieCard(
     movie: MovieDto,
     onClick: () -> Unit,
     onAddToList: () -> Unit,
+    onRemoveFromList: () -> Unit,
 ) {
-    // Track added state for animation
+    // Track added state for animation (toggle)
     var isAdded by remember { mutableStateOf(false) }
 
     // Format date label
@@ -1189,9 +1193,11 @@ fun UpcomingMovieCard(
             color = buttonColor,
             border = BorderStroke(1.dp, borderColor),
             onClick = {
-                if (!isAdded) {
-                    isAdded = true
+                isAdded = !isAdded
+                if (isAdded) {
                     onAddToList()
+                } else {
+                    onRemoveFromList()
                 }
             },
         ) {

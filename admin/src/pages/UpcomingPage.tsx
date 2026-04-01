@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, Check, Square, Loader2, Trash2, Calendar, Clock, Edit2, X, Compass, User } from 'lucide-react';
 import api from '../lib/api';
@@ -94,6 +95,7 @@ interface TmdbPerson {
 
 export default function UpcomingPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<'manage' | 'import'>('manage');
 
   // ── Import state ──
@@ -403,6 +405,12 @@ export default function UpcomingPage() {
 
                         {/* Actions */}
                         <div className="flex gap-1.5">
+                          <button
+                            onClick={() => navigate(`/movies/${movie._id}/edit`)}
+                            className="flex-1 py-1.5 bg-gold/10 text-gold rounded-lg text-xs font-medium hover:bg-gold/20 transition-colors"
+                          >
+                            Edit
+                          </button>
                           <button
                             onClick={() => publishMutation.mutate(movie._id)}
                             disabled={publishMutation.isPending}

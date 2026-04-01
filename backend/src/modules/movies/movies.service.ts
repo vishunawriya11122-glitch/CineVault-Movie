@@ -61,7 +61,7 @@ export class MoviesService {
   async findPublishedById(id: string): Promise<MovieDocument> {
     const movie = await this.movieModel.findOne({
       _id: id,
-      status: ContentStatus.PUBLISHED,
+      status: { $in: [ContentStatus.PUBLISHED, ContentStatus.UPCOMING] },
     });
     if (!movie) throw new NotFoundException('Content not found');
 
