@@ -23,6 +23,20 @@ export declare class AuthController {
         refreshToken: string;
         user: any;
     }>;
+    googleMobile(body: {
+        idToken: string;
+    }, res: Response): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: any;
+    }>;
+    googleMobileSignup(body: {
+        idToken: string;
+    }, res: Response): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: any;
+    }>;
     refresh(req: Request, res: Response): Promise<{
         accessToken: string;
         refreshToken: string;
@@ -45,6 +59,27 @@ export declare class AuthController {
         newPassword: string;
     }): Promise<{
         message: string;
+    }>;
+    sendPhoneOtp(body: {
+        phone: string;
+    }): Promise<{
+        message: string;
+        devOtp?: string;
+    }>;
+    verifyPhoneOtp(body: {
+        phone: string;
+        otp: string;
+    }, res: Response): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: any;
+    }>;
+    firebasePhoneVerify(body: {
+        idToken: string;
+    }, res: Response): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: any;
     }>;
     logout(res: Response): Promise<{
         message: string;

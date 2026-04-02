@@ -43,6 +43,16 @@ let AuthController = class AuthController {
         this.setRefreshTokenCookie(res, result.refreshToken);
         return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
     }
+    async googleMobile(body, res) {
+        const result = await this.authService.googleVerifyIdToken(body.idToken);
+        this.setRefreshTokenCookie(res, result.refreshToken);
+        return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+    }
+    async googleMobileSignup(body, res) {
+        const result = await this.authService.googleSignup(body.idToken);
+        this.setRefreshTokenCookie(res, result.refreshToken);
+        return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+    }
     async refresh(req, res) {
         const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
         const result = await this.authService.refreshToken(refreshToken);
@@ -60,6 +70,19 @@ let AuthController = class AuthController {
     }
     async changePassword(userId, body) {
         return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
+    }
+    async sendPhoneOtp(body) {
+        return this.authService.sendPhoneOtp(body.phone);
+    }
+    async verifyPhoneOtp(body, res) {
+        const result = await this.authService.verifyPhoneOtp(body.phone, body.otp);
+        this.setRefreshTokenCookie(res, result.refreshToken);
+        return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+    }
+    async firebasePhoneVerify(body, res) {
+        const result = await this.authService.verifyFirebasePhoneToken(body.idToken);
+        this.setRefreshTokenCookie(res, result.refreshToken);
+        return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
     }
     async logout(res) {
         res.clearCookie('refreshToken', {
@@ -123,6 +146,26 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "googleCallback", null);
 __decorate([
+    (0, common_1.Post)('google/mobile'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Login with Google ID token (Android/iOS) — user must be already registered' }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "googleMobile", null);
+__decorate([
+    (0, common_1.Post)('google/mobile/signup'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.CREATED),
+    (0, swagger_1.ApiOperation)({ summary: 'Sign up with Google ID token (Android/iOS) — creates new account' }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "googleMobileSignup", null);
+__decorate([
     (0, common_1.Post)('refresh'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
     (0, swagger_1.ApiOperation)({ summary: 'Refresh access token using refresh token (cookie or body)' }),
@@ -171,6 +214,35 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "changePassword", null);
+__decorate([
+    (0, common_1.Post)('phone/send-otp'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Send OTP to an Indian mobile number (+91)' }),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "sendPhoneOtp", null);
+__decorate([
+    (0, common_1.Post)('phone/verify-otp'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Verify OTP and login/register with phone number' }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "verifyPhoneOtp", null);
+__decorate([
+    (0, common_1.Post)('phone/firebase-verify'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Verify Firebase phone auth token and login/register' }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "firebasePhoneVerify", null);
 __decorate([
     (0, common_1.Post)('logout'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
