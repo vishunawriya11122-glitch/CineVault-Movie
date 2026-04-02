@@ -15,9 +15,6 @@ import { User, UserDocument, AuthProvider } from '../../schemas/user.schema';
 import { PhoneOtp, PhoneOtpDocument } from '../../schemas/phone-otp.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import * as admin from 'firebase-admin';
-
-@Injectable()
 export class AuthService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
@@ -322,26 +319,9 @@ export class AuthService {
   }
 
   /**
-   * Verify a Google ID token.
-   * First tries Firebase Admin (if initialized); falls back to Google's tokeninfo endpoint.
-   * This makes Google Sign-In work without requiring a Firebase project setup.
+   * Verify a Google ID token via Google's tokeninfo endpoint.
    */
   private async verifyGoogleToken(idToken: string): Promise<{ uid: string; email: string; name: string; picture: string }> {
-    // Try Firebase Admin first
-    if (admin.apps.length) {
-      try {
-        const decoded = await admin.auth().verifyIdToken(idToken);
-        return {
-          uid: decoded.uid,
-          email: decoded.email ?? '',
-          name: decoded.name ?? '',
-          picture: decoded.picture ?? '',
-        };
-      } catch {
-        // Fall through to Google tokeninfo
-      }
-    }
-
     // Verify via Google's public tokeninfo endpoint (no Firebase required)
     let data: any;
     try {

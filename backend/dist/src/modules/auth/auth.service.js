@@ -23,7 +23,6 @@ const nodemailer = require("nodemailer");
 const uuid_1 = require("uuid");
 const user_schema_1 = require("../../schemas/user.schema");
 const phone_otp_schema_1 = require("../../schemas/phone-otp.schema");
-const admin = require("firebase-admin");
 let AuthService = class AuthService {
     constructor(userModel, phoneOtpModel, jwtService, configService) {
         this.userModel = userModel;
@@ -276,19 +275,6 @@ let AuthService = class AuthService {
         return { ...tokens, user: this.sanitizeUser(user) };
     }
     async verifyGoogleToken(idToken) {
-        if (admin.apps.length) {
-            try {
-                const decoded = await admin.auth().verifyIdToken(idToken);
-                return {
-                    uid: decoded.uid,
-                    email: decoded.email ?? '',
-                    name: decoded.name ?? '',
-                    picture: decoded.picture ?? '',
-                };
-            }
-            catch {
-            }
-        }
         let data;
         try {
             const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
@@ -456,7 +442,6 @@ let AuthService = class AuthService {
 };
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = __decorate([
-    (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(user_schema_1.User.name)),
     __param(1, (0, mongoose_1.InjectModel)(phone_otp_schema_1.PhoneOtp.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
