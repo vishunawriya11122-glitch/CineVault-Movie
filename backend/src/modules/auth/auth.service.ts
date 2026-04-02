@@ -260,38 +260,25 @@ export class AuthService {
   }
 
   /**
-   * Verify a Firebase Google ID token (for Android / iOS clients).
-   * The mobile app calls this with the ID token it received from Firebase Auth.
+   * Google Login (mobile) — user MUST already exist in our database.
+   * Throws 401 if the Google account is not registered.
    */
   async googleVerifyIdToken(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-    let decodedToken: admin.auth.DecodedIdToken;
-    try {
-      decodedToken = await admin.auth().verifyIdToken(idToken);
-    } catch {
-      throw new UnauthorizedException('Invalid Google ID token');
-    }
-
-    const { uid, email, name, picture } = decodedToken;
+    const { uid, email, name, picture } = await this.verifyGoogleToken(idToken);
     if (!email) throw new BadRequestException('Google account has no email');
 
+    // LOGIN ONLY — find existing user
     let user = await this.userModel.findOne({ googleId: uid });
     if (!user) {
       user = await this.userModel.findOne({ email: email.toLowerCase() });
-      if (user) {
-        user.googleId = uid;
-        user.authProvider = AuthProvider.GOOGLE;
-        if (!user.avatarUrl && picture) user.avatarUrl = picture;
-        await user.save();
-      } else {
-        user = await this.userModel.create({
-          name: name ?? email.split('@')[0],
-          email: email.toLowerCase(),
-          googleId: uid,
-          authProvider: AuthProvider.GOOGLE,
-          avatarUrl: picture,
-          isEmailVerified: true,
-        });
+      if (!user) {
+        throw new UnauthorizedException('This account is not registered with us. Please sign up with Google first.');
       }
+      // Link Google ID to existing email account
+      user.googleId = uid;
+      user.authProvider = AuthProvider.GOOGLE;
+      if (!user.avatarUrl && picture) user.avatarUrl = picture;
+      await user.save();
     }
 
     if (user.isSuspended) throw new UnauthorizedException('Your account has been suspended');
@@ -301,6 +288,77 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
     return { ...tokens, user: this.sanitizeUser(user) };
+  }
+
+  /**
+   * Google Sign-Up (mobile) — creates a new account.
+   * Throws 409 if the Google account is already registered.
+   */
+  async googleSignup(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const { uid, email, name, picture } = await this.verifyGoogleToken(idToken);
+    if (!email) throw new BadRequestException('Google account has no email');
+
+    // SIGNUP ONLY — must NOT already exist
+    const existing = await this.userModel.findOne({
+      $or: [{ googleId: uid }, { email: email.toLowerCase() }],
+    });
+    if (existing) {
+      throw new ConflictException('This account is already registered. Please use Login with Google.');
+    }
+
+    const user = await this.userModel.create({
+      name: name ?? email.split('@')[0],
+      email: email.toLowerCase(),
+      googleId: uid,
+      authProvider: AuthProvider.GOOGLE,
+      avatarUrl: picture,
+      isEmailVerified: true,
+    });
+
+    const tokens = await this.generateTokens(user);
+    return { ...tokens, user: this.sanitizeUser(user) };
+  }
+
+  /**
+   * Verify a Google ID token.
+   * First tries Firebase Admin (if initialized); falls back to Google's tokeninfo endpoint.
+   * This makes Google Sign-In work without requiring a Firebase project setup.
+   */
+  private async verifyGoogleToken(idToken: string): Promise<{ uid: string; email: string; name: string; picture: string }> {
+    // Try Firebase Admin first
+    if (admin.apps.length) {
+      try {
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        return {
+          uid: decoded.uid,
+          email: decoded.email ?? '',
+          name: decoded.name ?? '',
+          picture: decoded.picture ?? '',
+        };
+      } catch {
+        // Fall through to Google tokeninfo
+      }
+    }
+
+    // Verify via Google's public tokeninfo endpoint (no Firebase required)
+    let data: any;
+    try {
+      const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+      data = await response.json();
+    } catch {
+      throw new UnauthorizedException('Failed to verify Google token');
+    }
+
+    if (data.error || !data.sub) {
+      throw new UnauthorizedException('Invalid Google ID token');
+    }
+
+    return {
+      uid: data.sub,
+      email: data.email ?? '',
+      name: data.name ?? '',
+      picture: data.picture ?? '',
+    };
   }
 
   async validateUser(userId: string): Promise<UserDocument | null> {
