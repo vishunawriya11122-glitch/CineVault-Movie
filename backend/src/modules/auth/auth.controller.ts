@@ -129,6 +129,27 @@ export class AuthController {
     return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
   }
 
+  // ── Phone OTP Authentication ──────────────────────────────────────────────
+
+  @Post('phone/send-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send OTP to an Indian mobile number (+91)' })
+  async sendPhoneOtp(@Body() body: { phone: string }) {
+    return this.authService.sendPhoneOtp(body.phone);
+  }
+
+  @Post('phone/verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify OTP and login/register with phone number' })
+  async verifyPhoneOtp(
+    @Body() body: { phone: string; otp: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.verifyPhoneOtp(body.phone, body.otp);
+    this.setRefreshTokenCookie(res, result.refreshToken);
+    return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+  }
+
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout and clear refresh token' })

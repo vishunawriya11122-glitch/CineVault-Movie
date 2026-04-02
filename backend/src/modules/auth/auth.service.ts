@@ -12,6 +12,7 @@ import * as bcrypt from 'bcryptjs';
 import * as nodemailer from 'nodemailer';
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserDocument, AuthProvider } from '../../schemas/user.schema';
+import { PhoneOtp, PhoneOtpDocument } from '../../schemas/phone-otp.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import * as admin from 'firebase-admin';
@@ -20,6 +21,7 @@ import * as admin from 'firebase-admin';
 export class AuthService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(PhoneOtp.name) private phoneOtpModel: Model<PhoneOtpDocument>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -359,6 +361,112 @@ export class AuthService {
       name: data.name ?? '',
       picture: data.picture ?? '',
     };
+  }
+
+  // ── Phone OTP Authentication ──────────────────────────────────────────────
+
+  /**
+   * Send an OTP to an Indian mobile number (+91).
+   * Uses Fast2SMS API if FAST2SMS_API_KEY is set; otherwise logs to console.
+   */
+  async sendPhoneOtp(phone: string): Promise<{ message: string }> {
+    const cleaned = phone.replace(/\s/g, '');
+    if (!/^\+91[6-9]\d{9}$/.test(cleaned)) {
+      throw new BadRequestException('Please enter a valid Indian mobile number (+91 followed by 10 digits starting with 6-9)');
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    // Remove any existing OTP for this number before creating a new one
+    await this.phoneOtpModel.deleteMany({ phone: cleaned });
+
+    await this.phoneOtpModel.create({
+      phone: cleaned,
+      otpHash,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5-minute expiry
+    });
+
+    await this.sendSmsOtp(cleaned, otp);
+    return { message: 'OTP sent successfully to your mobile number' };
+  }
+
+  /**
+   * Verify OTP and return JWT tokens.
+   * Finds existing user by phone, or auto-creates a new phone account.
+   */
+  async verifyPhoneOtp(
+    phone: string,
+    otp: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const cleaned = phone.replace(/\s/g, '');
+    if (!/^\+91[6-9]\d{9}$/.test(cleaned)) {
+      throw new BadRequestException('Invalid phone number format');
+    }
+
+    const otpRecord = await this.phoneOtpModel.findOne({
+      phone: cleaned,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!otpRecord) {
+      throw new BadRequestException('OTP has expired or was never sent. Please request a new OTP');
+    }
+
+    const isValid = await bcrypt.compare(otp, otpRecord.otpHash);
+    if (!isValid) {
+      throw new BadRequestException('Invalid OTP. Please check and try again');
+    }
+
+    // Consume the OTP — delete it so it cannot be reused
+    await this.phoneOtpModel.deleteOne({ _id: (otpRecord as any)._id });
+
+    // Find or create user
+    let user = await this.userModel.findOne({ phone: cleaned });
+    if (!user) {
+      const lastFour = cleaned.slice(-4);
+      const numericPhone = cleaned.replace('+', ''); // e.g. 919876543210
+      const generatedEmail = `ph${numericPhone}@cinevault.app`;
+      user = await this.userModel.create({
+        name: `User ${lastFour}`,
+        email: generatedEmail,
+        phone: cleaned,
+        authProvider: AuthProvider.PHONE,
+        isEmailVerified: false,
+      });
+    }
+
+    if (user.isSuspended) {
+      throw new UnauthorizedException('Your account has been suspended');
+    }
+
+    user.lastActiveAt = new Date();
+    await user.save();
+
+    const tokens = await this.generateTokens(user);
+    return { ...tokens, user: this.sanitizeUser(user) };
+  }
+
+  /** Send OTP via Fast2SMS (India). Falls back to console log if API key is missing. */
+  private async sendSmsOtp(phone: string, otp: string): Promise<void> {
+    const apiKey = this.configService.get<string>('FAST2SMS_API_KEY', '');
+    const phoneNumber = phone.replace('+91', ''); // Fast2SMS expects 10-digit number without country code
+
+    if (!apiKey) {
+      console.warn(`[AuthService] FAST2SMS_API_KEY not set. OTP for ${phone}: ${otp}`);
+      return;
+    }
+
+    try {
+      const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${apiKey}&route=otp&variables_values=${otp}&numbers=${phoneNumber}&flash=0`;
+      const response = await fetch(url);
+      const data = await response.json() as any;
+      if (!data.return) {
+        console.error('[AuthService] Fast2SMS error:', JSON.stringify(data));
+      }
+    } catch (err) {
+      console.error('[AuthService] Failed to send SMS OTP:', err);
+    }
   }
 
   async validateUser(userId: string): Promise<UserDocument | null> {
