@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: CineVault-Movie
+    name: velora-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm install --omit=dev --ignore-scripts --no-audit --no-fund
+    buildCommand: npm install && npm run build
     startCommand: node dist/src/main
     region: oregon
     plan: free
