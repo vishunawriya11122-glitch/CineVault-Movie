@@ -9,6 +9,18 @@ const helmet_1 = require("helmet");
 const app_module_1 = require("./app.module");
 const path_1 = require("path");
 const fs = require("fs");
+const admin = require("firebase-admin");
+if (!admin.apps.length) {
+    const serviceAccountPath = (0, path_1.join)(process.cwd(), 'gcp-service-account.json');
+    if (fs.existsSync(serviceAccountPath)) {
+        const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+        console.log('Firebase Admin initialized');
+    }
+    else {
+        console.warn('gcp-service-account.json not found — Firebase Admin not initialized');
+    }
+}
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     const configService = app.get(config_1.ConfigService);

@@ -367,23 +367,33 @@ export class AuthService {
 
   /**
    * Verify a Firebase Phone Auth ID token and return JWT tokens.
-   * Firebase handles OTP sending — no SMS provider needed.
+   * Uses Firebase REST API (accounts:lookup) — no service account needed.
    */
   async verifyFirebasePhoneToken(
     idToken: string,
   ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-    if (!admin.apps.length) {
-      throw new BadRequestException('Firebase Admin not initialized on server');
-    }
+    const firebaseApiKey = this.configService.get<string>('FIREBASE_WEB_API_KEY') ?? 'AIzaSyCYm3w06LQbfFGqCiGYSBYfbExNokEIJaw';
 
-    let decodedToken: admin.auth.DecodedIdToken;
+    let phoneNumber: string;
     try {
-      decodedToken = await admin.auth().verifyIdToken(idToken);
+      const res = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        },
+      );
+      const data: any = await res.json();
+      if (!res.ok || !data.users?.length) {
+        throw new Error('Invalid token');
+      }
+      phoneNumber = data.users[0].phoneNumber;
     } catch {
       throw new UnauthorizedException('Invalid or expired Firebase token');
     }
 
-    const phone = decodedToken.phone_number;
+    const phone = phoneNumber;
     if (!phone) {
       throw new BadRequestException('Firebase token does not contain a phone number');
     }
