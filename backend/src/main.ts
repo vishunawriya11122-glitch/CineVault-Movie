@@ -8,19 +8,6 @@ import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import * as fs from 'fs';
-import * as admin from 'firebase-admin';
-
-// Initialize Firebase Admin once at startup
-if (!admin.apps.length) {
-  const serviceAccountPath = join(process.cwd(), 'gcp-service-account.json');
-  if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    console.log('Firebase Admin initialized');
-  } else {
-    console.warn('gcp-service-account.json not found — Firebase Admin not initialized');
-  }
-}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
