@@ -28,7 +28,7 @@ import kotlinx.coroutines.isActive
 import java.io.File
 
 @Composable
-fun UpdateDialog(info: AppVersionResponse, onDismiss: () -> Unit) {
+fun UpdateDialog(info: AppVersionResponse, onDismiss: () -> Unit, onInstallClicked: (versionCode: Int) -> Unit = {}) {
     val context = LocalContext.current
     var downloadId by remember { mutableLongStateOf(-1L) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -119,7 +119,10 @@ fun UpdateDialog(info: AppVersionResponse, onDismiss: () -> Unit) {
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { downloadedFile?.let { installApk(context, it) } },
+                            onClick = {
+                                onInstallClicked(info.versionCode)
+                                downloadedFile?.let { installApk(context, it) }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
                             shape = RoundedCornerShape(8.dp)

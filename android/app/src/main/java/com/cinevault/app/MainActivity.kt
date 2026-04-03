@@ -37,7 +37,8 @@ class MainActivity : ComponentActivity() {
                     updateInfo?.let { info ->
                         UpdateDialog(
                             info = info,
-                            onDismiss = { appViewModel.dismissUpdate() }
+                            onDismiss = { appViewModel.dismissUpdate() },
+                            onInstallClicked = { versionCode -> appViewModel.markUpdateInstalled(versionCode) }
                         )
                     }
                 }

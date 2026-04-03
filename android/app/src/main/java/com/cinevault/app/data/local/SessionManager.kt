@@ -37,6 +37,9 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
         private val LAST_PHONE_NAME = stringPreferencesKey("last_phone_name")
         private val LAST_PHONE_NUMBER = stringPreferencesKey("last_phone_number")
         private val LAST_AUTH_PROVIDER = stringPreferencesKey("last_auth_provider")
+
+        // Update tracking — persisted so popup doesn't repeat after installing
+        private val INSTALLED_VERSION_CODE = intPreferencesKey("installed_version_code")
     }
 
     val accessToken: Flow<String?> = context.dataStore.data.map { it[ACCESS_TOKEN] }
@@ -60,6 +63,9 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
     val playbackQuality: Flow<String?> = context.dataStore.data.map { it[DEFAULT_QUALITY] ?: "Auto" }
 
     val likedMovieIds: Flow<Set<String>> = context.dataStore.data.map { it[LIKED_MOVIE_IDS] ?: emptySet() }
+
+    /** The highest versionCode the user has explicitly confirmed installing. */
+    val installedVersionCode: Flow<Int> = context.dataStore.data.map { it[INSTALLED_VERSION_CODE] ?: 0 }
 
     // Saved account flows
     val lastGoogleName: Flow<String?> = context.dataStore.data.map { it[LAST_GOOGLE_NAME] }
@@ -167,6 +173,14 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
     suspend fun savePlaybackQuality(quality: String) {
         context.dataStore.edit { prefs ->
             prefs[DEFAULT_QUALITY] = quality
+        }
+    }
+
+    /** Call this when the user taps "Install Now" — prevents the popup from re-showing for this version. */
+    suspend fun saveInstalledVersionCode(versionCode: Int) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[INSTALLED_VERSION_CODE] ?: 0
+            if (versionCode > current) prefs[INSTALLED_VERSION_CODE] = versionCode
         }
     }
 
