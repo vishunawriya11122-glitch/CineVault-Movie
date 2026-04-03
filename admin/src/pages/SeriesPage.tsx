@@ -43,6 +43,7 @@ export default function SeriesPage() {
   const [showBunnyStream, setShowBunnyStream] = useState<string | null>(null);
   const [showFolderImport, setShowFolderImport] = useState(false);
   const [showCollectionImport, setShowCollectionImport] = useState(false);
+  const [showR2Import, setShowR2Import] = useState(false);
   const [renamingSeriesId, setRenamingSeriesId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
 
@@ -96,6 +97,12 @@ export default function SeriesPage() {
             className="flex items-center gap-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
           >
             <Cloud size={18} /> Bunny Collection Import
+          </button>
+          <button
+            onClick={() => setShowR2Import(true)}
+            className="flex items-center gap-2 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 border border-orange-500/30 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+          >
+            <Cloud size={18} /> R2 Import
           </button>
           <button
             onClick={() => setShowFolderImport(true)}
@@ -251,6 +258,14 @@ export default function SeriesPage() {
         <BunnyCollectionImportModal
           series={series}
           onClose={() => { setShowCollectionImport(false); queryClient.invalidateQueries({ queryKey: ['series-list'] }); }}
+        />
+      )}
+
+      {/* R2 Storage Import Modal */}
+      {showR2Import && (
+        <R2ImportModal
+          series={series}
+          onClose={() => { setShowR2Import(false); queryClient.invalidateQueries({ queryKey: ['series-list'] }); }}
         />
       )}
 
@@ -1349,6 +1364,252 @@ interface ScannedSeason {
 interface ScanResult {
   totalFiles: number;
   seasons: ScannedSeason[];
+}
+
+// ── R2 Storage Import Modal (Browse Cloudflare R2 → Import Series) ──
+function R2ImportModal({
+  series,
+  onClose,
+}: {
+  series: Movie[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedSeriesId, setSelectedSeriesId] = useState('');
+  const [currentPath, setCurrentPath] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState('');
+  const [previewData, setPreviewData] = useState<{
+    seriesFolder: string;
+    seasons: { seasonNumber: number; folderPath: string; episodes: { episodeNumber: number; title: string; key: string; size: number; url: string }[] }[];
+    totalEpisodes: number;
+  } | null>(null);
+
+  // Browse R2 folders
+  const { data: browseData, isLoading: browsing } = useQuery({
+    queryKey: ['r2-browse', currentPath],
+    queryFn: async () => {
+      const { data } = await api.get(`/r2/browse?path=${encodeURIComponent(currentPath)}`);
+      return data as {
+        currentPath: string;
+        folders: { name: string; path: string }[];
+        files: { name: string; path: string; size: number; url: string }[];
+      };
+    },
+  });
+
+  // Preview mutation
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.get(`/r2/preview?path=${encodeURIComponent(selectedFolder)}`);
+      return data;
+    },
+    onSuccess: (data) => {
+      setPreviewData(data);
+      toast.success(`Detected ${data.seasons.length} season(s) with ${data.totalEpisodes} episode(s)`);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to preview folder'),
+  });
+
+  // Import mutation
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/r2/import/${selectedSeriesId}`, { path: selectedFolder });
+      return data as { seasons: any[]; totalImported: number };
+    },
+    onSuccess: (data) => {
+      toast.success(`Imported ${data.totalImported} episodes across ${data.seasons.length} season(s)`);
+      queryClient.invalidateQueries({ queryKey: ['seasons'] });
+      queryClient.invalidateQueries({ queryKey: ['series-list'] });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Import failed'),
+  });
+
+  const formatSize = (bytes: number) => {
+    if (!bytes) return '—';
+    if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  };
+
+  const pathParts = currentPath.split('/').filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Cloud size={22} className="text-orange-400" />
+            <h3 className="font-semibold text-lg">Cloudflare R2 Import</h3>
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+        </div>
+
+        <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 text-xs text-orange-300 space-y-1">
+          <p className="font-semibold">☁️ Import Series from Cloudflare R2 Storage</p>
+          <p>Browse your R2 bucket, select a series folder (e.g., <code className="bg-surface px-1 rounded">series/breaking-bad/</code>), preview the structure, and import.</p>
+          <p>Expected folder structure: <code className="bg-surface px-1 rounded">series-name/s01/e01.mp4</code></p>
+        </div>
+
+        {/* Step 1: Select Series */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-text-secondary">1. Select Series</label>
+          <select
+            value={selectedSeriesId}
+            onChange={(e) => setSelectedSeriesId(e.target.value)}
+            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm"
+          >
+            <option value="">-- Select a series --</option>
+            {series.map((s) => (
+              <option key={s._id} value={s._id}>{s.title}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Step 2: Browse R2 */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-text-secondary">2. Browse R2 Bucket & Select Series Folder</label>
+
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1 text-xs flex-wrap">
+            <button
+              onClick={() => { setCurrentPath(''); setSelectedFolder(''); setPreviewData(null); }}
+              className="text-orange-400 hover:text-orange-300 font-medium"
+            >
+              🪣 Root
+            </button>
+            {pathParts.map((part, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <span className="text-text-muted">/</span>
+                <button
+                  onClick={() => { setCurrentPath(pathParts.slice(0, i + 1).join('/') + '/'); setPreviewData(null); }}
+                  className="text-orange-400 hover:text-orange-300"
+                >
+                  {part}
+                </button>
+              </span>
+            ))}
+          </div>
+
+          {/* Folder list */}
+          {browsing ? (
+            <div className="flex items-center gap-2 text-sm text-text-muted py-4 justify-center"><Loader2 size={14} className="animate-spin" /> Browsing R2...</div>
+          ) : (
+            <div className="bg-surface-light border border-border rounded-lg max-h-48 overflow-y-auto">
+              {browseData?.folders.map((folder) => (
+                <div key={folder.path} className="flex items-center gap-2 px-3 py-2 hover:bg-surface transition-colors border-b border-border/50 last:border-0">
+                  <button
+                    onClick={() => { setCurrentPath(folder.path); setPreviewData(null); }}
+                    className="flex items-center gap-2 flex-1 text-left text-sm"
+                  >
+                    <FolderInput size={14} className="text-orange-400" />
+                    <span className="text-text-primary">{folder.name}/</span>
+                  </button>
+                  <button
+                    onClick={() => { setSelectedFolder(folder.path); setPreviewData(null); }}
+                    className={`text-xs px-2 py-1 rounded font-medium transition-colors ${
+                      selectedFolder === folder.path
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+                    }`}
+                  >
+                    {selectedFolder === folder.path ? '✓ Selected' : 'Select'}
+                  </button>
+                </div>
+              ))}
+              {browseData?.files.map((file) => (
+                <div key={file.path} className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted border-b border-border/50 last:border-0">
+                  <Film size={14} />
+                  <span className="flex-1 truncate">{file.name}</span>
+                  <span className="text-xs">{formatSize(file.size)}</span>
+                </div>
+              ))}
+              {(!browseData?.folders.length && !browseData?.files.length) && (
+                <p className="text-sm text-text-muted text-center py-4">Empty folder</p>
+              )}
+            </div>
+          )}
+
+          {selectedFolder && (
+            <div className="flex items-center gap-2 text-xs text-orange-400">
+              <Check size={12} />
+              Selected: <code className="bg-surface px-1 rounded">{selectedFolder}</code>
+            </div>
+          )}
+        </div>
+
+        {/* Step 3: Preview */}
+        {selectedFolder && (
+          <button
+            onClick={() => previewMutation.mutate()}
+            disabled={previewMutation.isPending}
+            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 w-full justify-center"
+          >
+            {previewMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
+            Preview Season/Episode Structure
+          </button>
+        )}
+
+        {/* Preview Result */}
+        {previewData && previewData.seasons.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-green-400">
+              <Check size={16} />
+              Detected {previewData.seasons.length} Season(s), {previewData.totalEpisodes} Episode(s)
+            </div>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {previewData.seasons.map((season) => (
+                <div key={season.seasonNumber} className="bg-surface-light border border-border rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Layers size={14} className="text-gold" />
+                    <span className="text-sm font-semibold">Season {season.seasonNumber}</span>
+                    <span className="text-xs text-text-muted">({season.episodes.length} episodes)</span>
+                  </div>
+                  <div className="space-y-1 pl-5">
+                    {season.episodes.map((ep) => (
+                      <div key={ep.key} className="flex items-center gap-3 text-xs text-text-secondary">
+                        <span className="font-mono text-gold w-8">E{String(ep.episodeNumber).padStart(2, '0')}</span>
+                        <span className="flex-1 truncate">{ep.title}</span>
+                        <span className="text-text-muted">{formatSize(ep.size)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Import */}
+        {previewData && selectedSeriesId && (
+          <button
+            onClick={() => importMutation.mutate()}
+            disabled={importMutation.isPending}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 w-full justify-center"
+          >
+            {importMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {importMutation.isPending ? 'Importing...' : `Import ${previewData.totalEpisodes} Episodes into ${previewData.seasons.length} Season(s)`}
+          </button>
+        )}
+
+        {/* Import Results */}
+        {importMutation.isSuccess && importMutation.data && (
+          <div className="bg-surface-light border border-green-500/30 rounded-xl p-4 space-y-2">
+            <div className="flex items-center gap-2 text-green-400 font-medium">
+              <Check size={16} />
+              Successfully imported {importMutation.data.totalImported} episodes across {importMutation.data.seasons.length} season(s)
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {importMutation.data.seasons.map((s: any) => (
+                <div key={s.seasonNumber} className="text-xs">
+                  <span className="font-semibold text-gold">Season {s.seasonNumber}:</span>
+                  <span className="text-text-muted ml-1">{s.imported} episode(s)</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── Bunny Collection Import Modal (Folder-based, ONE collection = one series) ──

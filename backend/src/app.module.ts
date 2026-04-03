@@ -25,6 +25,7 @@ import { TmdbModule } from './modules/tmdb/tmdb.module';
 import { GdriveFolderModule } from './modules/gdrive-folder/gdrive-folder.module';
 import { BunnyModule } from './modules/bunny/bunny.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { R2StorageModule } from './modules/r2-storage/r2-storage.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     GdriveFolderModule,
     BunnyModule,
     SettingsModule,
+    R2StorageModule,
   ],
 })
 export class AppModule {}
