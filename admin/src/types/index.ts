@@ -62,6 +62,8 @@ export interface Banner {
   order: number;
   displayOrder: number;
   section: 'home' | 'movies' | 'shows' | 'anime';
+  type?: 'hero' | 'mid';
+  position?: number;
   startDate?: string;
   endDate?: string;
 }

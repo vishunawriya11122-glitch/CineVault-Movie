@@ -28,7 +28,7 @@ class AuthRepository @Inject constructor(
                 ensureActiveProfile()
                 Result.Success(body.user)
             } else {
-                Result.Error(response.message(), response.code())
+                Result.Error(parseErrorMessage(response), response.code())
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -52,7 +52,7 @@ class AuthRepository @Inject constructor(
                 ensureActiveProfile()
                 Result.Success(body.user)
             } else {
-                Result.Error(response.message(), response.code())
+                Result.Error(parseErrorMessage(response), response.code())
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -99,7 +99,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful) {
                 Result.Success(response.body()?.message ?: "Reset link sent")
             } else {
-                Result.Error(response.message())
+                Result.Error(parseErrorMessage(response))
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -120,6 +120,7 @@ class AuthRepository @Inject constructor(
                     role = body.user.role,
                 )
                 body.refreshToken?.let { sessionManager.saveRefreshToken(it) }
+                sessionManager.saveGoogleAccount(body.user.name, body.user.email, body.user.avatarUrl)
                 ensureActiveProfile()
                 Result.Success(body.user)
             } else {
@@ -144,6 +145,7 @@ class AuthRepository @Inject constructor(
                     role = body.user.role,
                 )
                 body.refreshToken?.let { sessionManager.saveRefreshToken(it) }
+                sessionManager.saveGoogleAccount(body.user.name, body.user.email, body.user.avatarUrl)
                 ensureActiveProfile()
                 Result.Success(body.user)
             } else {
@@ -205,6 +207,11 @@ class AuthRepository @Inject constructor(
                     role = body.user.role,
                 )
                 body.refreshToken?.let { sessionManager.saveRefreshToken(it) }
+                // Save phone account for suggestion
+                val phone = body.user.email.removePrefix("ph").removeSuffix("@cinevault.app")
+                if (phone.startsWith("91")) {
+                    sessionManager.savePhoneAccount(body.user.name, "+$phone")
+                }
                 ensureActiveProfile()
                 Result.Success(body.user)
             } else {
@@ -212,6 +219,45 @@ class AuthRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "Phone verification failed")
+        }
+    }
+
+    // ── Email OTP Authentication ──────────────────────────────────────────────
+
+    suspend fun sendEmailOtp(email: String): Result<MessageResponse> {
+        return try {
+            val response = api.sendEmailOtp(SendEmailOtpRequest(email))
+            if (response.isSuccessful) {
+                Result.Success(response.body() ?: MessageResponse("OTP sent"))
+            } else {
+                Result.Error(parseErrorMessage(response))
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "Failed to send OTP")
+        }
+    }
+
+    suspend fun verifyEmailOtp(email: String, otp: String): Result<UserDto> {
+        return try {
+            val response = api.verifyEmailOtp(VerifyEmailOtpRequest(email, otp))
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                sessionManager.saveSession(
+                    token = body.accessToken,
+                    userId = body.user.id,
+                    name = body.user.name,
+                    email = body.user.email,
+                    avatar = body.user.avatarUrl,
+                    role = body.user.role,
+                )
+                body.refreshToken?.let { sessionManager.saveRefreshToken(it) }
+                ensureActiveProfile()
+                Result.Success(body.user)
+            } else {
+                Result.Error(parseErrorMessage(response))
+            }
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "Email verification failed")
         }
     }
 
@@ -248,7 +294,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful && response.body() != null) {
                 Result.Success(response.body()!!.resetToken)
             } else {
-                Result.Error(response.message())
+                Result.Error(parseErrorMessage(response))
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -261,7 +307,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful) {
                 Result.Success(response.body()?.message ?: "Password reset successfully")
             } else {
-                Result.Error(response.message())
+                Result.Error(parseErrorMessage(response))
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -274,7 +320,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful) {
                 Result.Success(response.body()?.message ?: "Password changed successfully")
             } else {
-                Result.Error(response.message())
+                Result.Error(parseErrorMessage(response))
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -288,7 +334,7 @@ class AuthRepository @Inject constructor(
                 sessionManager.clearSession()
                 Result.Success(response.body()?.message ?: "Account deleted")
             } else {
-                Result.Error(response.message())
+                Result.Error(parseErrorMessage(response))
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")
@@ -301,7 +347,7 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful && response.body() != null) {
                 Result.Success(response.body()!!)
             } else {
-                Result.Error(response.message())
+                Result.Error(parseErrorMessage(response))
             }
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "An error occurred")

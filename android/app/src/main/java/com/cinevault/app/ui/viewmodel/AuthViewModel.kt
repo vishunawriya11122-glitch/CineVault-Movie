@@ -22,6 +22,10 @@ data class AuthUiState(
     val phoneOtpSent: Boolean = false,
     val phoneLoginSuccess: Boolean = false,
     val devOtp: String? = null,  // non-null when SMS not configured (dev/testing mode)
+    // Email OTP
+    val emailOtpSent: Boolean = false,
+    val emailLoginSuccess: Boolean = false,
+    val emailDevOtp: String? = null,
 )
 
 @HiltViewModel
@@ -35,6 +39,13 @@ class AuthViewModel @Inject constructor(
 
     val isLoggedIn: Flow<Boolean> = sessionManager.accessToken.map { it != null }
     val hasCompletedOnboarding: Flow<Boolean> = sessionManager.onboardingCompleted
+
+    // Saved account flows for login suggestions
+    val lastGoogleName: Flow<String?> = sessionManager.lastGoogleName
+    val lastGoogleEmail: Flow<String?> = sessionManager.lastGoogleEmail
+    val lastGoogleAvatar: Flow<String?> = sessionManager.lastGoogleAvatar
+    val lastPhoneName: Flow<String?> = sessionManager.lastPhoneName
+    val lastPhoneNumber: Flow<String?> = sessionManager.lastPhoneNumber
 
     fun login(email: String, password: String) {
         if (email.isBlank() || password.isBlank()) {
@@ -62,6 +73,10 @@ class AuthViewModel @Inject constructor(
         }
         if (password.length < 8) {
             _uiState.update { it.copy(error = "Password must be at least 8 characters") }
+            return
+        }
+        if (!password.any { it.isUpperCase() } || !password.any { it.isLowerCase() } || !password.any { it.isDigit() }) {
+            _uiState.update { it.copy(error = "Password must contain uppercase, lowercase, and a number") }
             return
         }
         viewModelScope.launch {
@@ -157,6 +172,44 @@ class AuthViewModel @Inject constructor(
 
     fun resetPhoneOtpSent() {
         _uiState.update { it.copy(phoneOtpSent = false) }
+    }
+
+    // ── Email OTP Authentication ──────────────────────────────────────────────
+
+    fun sendEmailOtp(email: String) {
+        if (email.isBlank()) {
+            _uiState.update { it.copy(error = "Please enter your email") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            when (val result = authRepository.sendEmailOtp(email)) {
+                is Result.Success -> _uiState.update {
+                    it.copy(isLoading = false, emailOtpSent = true, emailDevOtp = result.data?.devOtp)
+                }
+                is Result.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun verifyEmailOtp(email: String, otp: String) {
+        if (otp.isBlank()) {
+            _uiState.update { it.copy(error = "Please enter the OTP") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            when (val result = authRepository.verifyEmailOtp(email, otp)) {
+                is Result.Success -> _uiState.update { it.copy(isLoading = false, emailLoginSuccess = true) }
+                is Result.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun resetEmailOtpSent() {
+        _uiState.update { it.copy(emailOtpSent = false, emailDevOtp = null) }
     }
 
     fun onGoogleSignInError(message: String) {

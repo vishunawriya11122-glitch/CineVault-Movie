@@ -166,6 +166,29 @@ fun HomeScreen(
                         }
                     } else {
                         itemsIndexed(sectionsToShow) { _, section ->
+                            // Mid Banner: standalone 16:9 clickable banner, no section header
+                            if (section.type == "mid_banner" && section.bannerImageUrl != null) {
+                                val targetId = section.contentId ?: section.items.firstOrNull()?.id
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        .aspectRatio(18f / 9f)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(CineVaultTheme.colors.surface)
+                                        .then(
+                                            if (targetId != null) Modifier.clickable { onMovieClick(targetId) }
+                                            else Modifier
+                                        )
+                                ) {
+                                    AsyncImage(
+                                        model = section.bannerImageUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            } else {
                             Column {
                                 PremiumSectionHeader(
                                     title = section.title,
@@ -214,6 +237,7 @@ fun HomeScreen(
                                     )
                                 }
                             }
+                            } // end else (non-mid_banner)
                         }
                     }
                 }

@@ -18,6 +18,8 @@ import AppUpdatePage from './pages/AppUpdatePage';
 import TmdbImportPage from './pages/TmdbImportPage';
 import StoragePage from './pages/StoragePage';
 import UpcomingPage from './pages/UpcomingPage';
+import RankingPage from './pages/RankingPage';
+import SettingsPage from './pages/SettingsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -54,6 +56,8 @@ export default function App() {
         <Route path="tmdb-import" element={<TmdbImportPage />} />
         <Route path="upcoming" element={<UpcomingPage />} />
         <Route path="storage" element={<StoragePage />} />
+        <Route path="ranking" element={<RankingPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

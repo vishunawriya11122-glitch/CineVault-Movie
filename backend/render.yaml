@@ -32,5 +32,7 @@ services:
         sync: false
       - key: SMTP_PASSWORD
         sync: false
+      - key: TMDB_ACCESS_TOKEN
+        value: "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmYjY0ZDZhOTE4YzA5NjVjMTBiYWVhZDFhNTdlMWEzNyIsIm5iZiI6MTc3NDkyMjA3OC43MjgsInN1YiI6IjY5Y2IyOTVlNmM1MWQ4NGFmOWNhM2JiNiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.vxX1SUw4SjVECMG7oSmpSAC3GdeiBpVerEHCjjyczOQ"
     healthCheckPath: /api/v1/health
     autoDeploy: true

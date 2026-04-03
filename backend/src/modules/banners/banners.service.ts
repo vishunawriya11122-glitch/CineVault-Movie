@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Banner, BannerDocument, BannerSection } from '../../schemas/banner.schema';
+import { Banner, BannerDocument, BannerSection, BannerType } from '../../schemas/banner.schema';
 import { Movie, MovieDocument, ContentStatus } from '../../schemas/movie.schema';
 
 @Injectable()
@@ -30,6 +30,14 @@ export class BannersService {
       } else {
         filter.section = BannerSection.HOME;
       }
+
+      // Only return hero banners for the carousel
+      filter.type = { $in: [BannerType.HERO, null, undefined] };
+      // Also match documents that don't have the type field yet
+      filter.$and = [
+        { $or: [{ type: BannerType.HERO }, { type: { $exists: false } }, { type: null }] },
+      ];
+      delete filter.type;
 
       const banners = await this.bannerModel
         .find(filter)
@@ -67,6 +75,38 @@ export class BannersService {
       );
     } catch (error) {
       console.error('Error fetching active banners:', error);
+      return [];
+    }
+  }
+
+  async getMidBanners(section?: string): Promise<any[]> {
+    try {
+      const now = new Date();
+      const filter: any = {
+        isActive: true,
+        type: BannerType.MID,
+        $or: [
+          { activeFrom: { $exists: false }, activeTo: { $exists: false } },
+          { activeFrom: { $lte: now }, activeTo: { $gte: now } },
+          { activeFrom: { $lte: now }, activeTo: { $exists: false } },
+          { activeFrom: { $exists: false }, activeTo: { $gte: now } },
+        ],
+      };
+
+      if (section) {
+        filter.section = section;
+      } else {
+        filter.section = BannerSection.HOME;
+      }
+
+      const banners = await this.bannerModel
+        .find(filter)
+        .sort({ displayOrder: 1 })
+        .populate('contentId', 'title contentType posterUrl bannerUrl');
+
+      return banners;
+    } catch (error) {
+      console.error('Error fetching mid banners:', error);
       return [];
     }
   }

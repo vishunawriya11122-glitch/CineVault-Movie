@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { HomeSection, HomeSectionDocument, TabSection, SectionType, CardSize } from '../../schemas/home-section.schema';
 import { Movie, MovieDocument, ContentStatus } from '../../schemas/movie.schema';
+import { Banner, BannerDocument, BannerType, BannerSection } from '../../schemas/banner.schema';
 
 // ── Default "Recently Added" system sections ──────────────────────────────────
 const RECENTLY_ADDED_DEFAULTS = [
@@ -95,6 +96,7 @@ export class HomeSectionsService implements OnModuleInit {
   constructor(
     @InjectModel(HomeSection.name) private sectionModel: Model<HomeSectionDocument>,
     @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
+    @InjectModel(Banner.name) private bannerModel: Model<BannerDocument>,
   ) {}
 
   async onModuleInit() {
@@ -218,7 +220,62 @@ export class HomeSectionsService implements OnModuleInit {
       });
     }
 
-    return feed;
+    // Interleave mid-banners between sections
+    const sectionTab = filter.section || TabSection.HOME;
+    const midBanners = await this.getMidBannersForFeed(sectionTab);
+    return this.interleaveMidBanners(feed, midBanners);
+  }
+
+  /**
+   * Fetch active mid-banners for a given section tab and interleave them into the feed.
+   */
+  private async getMidBannersForFeed(sectionTab: string): Promise<any[]> {
+    const now = new Date();
+    const filter: any = {
+      isActive: true,
+      type: BannerType.MID,
+      $or: [
+        { activeFrom: { $exists: false }, activeTo: { $exists: false } },
+        { activeFrom: { $lte: now }, activeTo: { $gte: now } },
+        { activeFrom: { $lte: now }, activeTo: { $exists: false } },
+        { activeFrom: { $exists: false }, activeTo: { $gte: now } },
+      ],
+    };
+    filter.section = sectionTab || BannerSection.HOME;
+
+    return this.bannerModel
+      .find(filter)
+      .sort({ displayOrder: 1 })
+      .populate('contentId', 'title contentType posterUrl bannerUrl');
+  }
+
+  /**
+   * Build the final feed with mid-banners interleaved between sections.
+   */
+  private interleaveMidBanners(feed: any[], midBanners: any[]): any[] {
+    if (!midBanners.length) return feed;
+
+    const result = [...feed];
+    for (const banner of midBanners) {
+      const pos = banner.position || 2; // default: after 2nd section
+      const insertAt = Math.min(pos, result.length);
+      result.splice(insertAt, 0, {
+        id: banner._id,
+        title: '',
+        type: 'mid_banner',
+        slug: null,
+        cardSize: 'small',
+        showViewMore: false,
+        viewMoreText: '',
+        showTrendingNumbers: false,
+        bannerImageUrl: banner.imageUrl,
+        contentId: typeof banner.contentId === 'object' && banner.contentId?._id
+          ? String(banner.contentId._id)
+          : banner.contentId ? String(banner.contentId) : null,
+        items: [],
+      });
+    }
+    return result;
   }
 
   async getAll(section?: string): Promise<HomeSectionDocument[]> {

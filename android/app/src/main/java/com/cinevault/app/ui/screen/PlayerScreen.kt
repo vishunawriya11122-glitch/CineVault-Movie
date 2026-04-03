@@ -73,9 +73,9 @@ import java.util.Locale
 private val CyanAccent = Color(0xFF00D9FF)
 private val PurpleAccent = Color(0xFF9B59B6)
 private val GoldAccent = Color(0xFFD4AF37)
-private val BackgroundDark = Color(0xFF0B0515)
-private val SurfaceElevated = Color(0xFF1C1230)
-private val BorderSubtle = Color(0xFF2D1F4E)
+private val BackgroundDark = Color(0xFF121212)
+private val SurfaceElevated = Color(0xFF2A2A2A)
+private val BorderSubtle = Color(0xFF3A3A3A)
 private val TextDim = Color(0xB3B0A3C4)
 
 private val AccentGrad = Brush.horizontalGradient(listOf(CyanAccent, PurpleAccent))

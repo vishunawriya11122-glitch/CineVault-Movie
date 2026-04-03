@@ -1344,7 +1344,7 @@ private fun MoreSeasonsBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF12122B),
+        containerColor = Color(0xFF1E1E1E),
         dragHandle = {
             Box(
                 modifier = Modifier

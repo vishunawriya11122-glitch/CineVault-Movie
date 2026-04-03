@@ -24,6 +24,10 @@ data class SendPhoneOtpRequest(val phone: String)
 data class VerifyPhoneOtpRequest(val phone: String, val otp: String)
 data class FirebasePhoneRequest(val idToken: String)
 
+// Email OTP Auth
+data class SendEmailOtpRequest(val email: String)
+data class VerifyEmailOtpRequest(val email: String, val otp: String)
+
 // App Version (for auto-update)
 data class AppVersionResponse(
     val versionCode: Int,
@@ -40,6 +44,7 @@ data class UserDto(
     val email: String,
     val avatarUrl: String?,
     val role: String,
+    val authProvider: String? = null,
     val isEmailVerified: Boolean
 )
 
@@ -208,6 +213,7 @@ data class HomeSectionDto(
     val viewMoreText: String = "View More",
     val showTrendingNumbers: Boolean = false,
     val bannerImageUrl: String? = null,
+    val contentId: String? = null, // For mid_banner: linked movie/show ID
     val items: List<MovieDto> = emptyList()
 )
 

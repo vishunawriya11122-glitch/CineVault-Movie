@@ -115,6 +115,16 @@ function SortableBannerRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <h3 className="font-medium truncate">{banner.title}</h3>
+          {banner.type === 'mid' && (
+            <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">
+              Mid Banner
+            </span>
+          )}
+          {(!banner.type || banner.type === 'hero') && (
+            <span className="text-xs bg-gold/20 text-gold px-2 py-0.5 rounded">
+              Hero
+            </span>
+          )}
           {!banner.contentId && (
             <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded">
               Pre-release
@@ -130,7 +140,10 @@ function SortableBannerRow({
             {contentTitle}
           </p>
         )}
-        <p className="text-xs text-text-muted mt-1">Order: {banner.displayOrder ?? banner.order}</p>
+        <p className="text-xs text-text-muted mt-1">
+          Order: {banner.displayOrder ?? banner.order}
+          {banner.type === 'mid' && banner.position != null && ` · Position: after section ${banner.position}`}
+        </p>
       </div>
 
       <label className="flex items-center gap-2 cursor-pointer flex-shrink-0">
@@ -184,6 +197,8 @@ export default function BannersPage() {
     contentId: '',
     isActive: true,
     section: activeSection as string,
+    type: 'hero' as string,
+    position: 2,
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -300,6 +315,8 @@ export default function BannersPage() {
           : banner.contentId || '',
       isActive: banner.isActive,
       section: banner.section || activeSection,
+      type: banner.type || 'hero',
+      position: banner.position ?? 2,
     });
     setShowForm(true);
   }
@@ -308,6 +325,10 @@ export default function BannersPage() {
     const data: any = { ...form };
     if (!data.contentId || data.contentId.trim() === '') {
       delete data.contentId;
+    }
+    // Mid banners don't need a title
+    if (data.type === 'mid' && !data.title) {
+      data.title = 'Mid Banner';
     }
     if (editingBanner) {
       updateMutation.mutate({ id: editingBanner._id, data });
@@ -447,6 +468,44 @@ export default function BannersPage() {
               </select>
             </div>
 
+            {/* Banner Type */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">Banner Type</label>
+              <select
+                value={form.type}
+                onChange={(e) => setForm({ ...form, type: e.target.value })}
+                className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
+              >
+                <option value="hero">Hero (Top Carousel)</option>
+                <option value="mid">Mid Banner (Between Sections)</option>
+              </select>
+              {form.type === 'mid' && (
+                <p className="text-xs text-text-muted mt-1">
+                  Mid Banner: Single clickable 16:9 banner placed between content sections. No text overlay.
+                </p>
+              )}
+            </div>
+
+            {/* Position (only for mid banners) */}
+            {form.type === 'mid' && (
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">
+                  Position (after which section)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={form.position}
+                  onChange={(e) => setForm({ ...form, position: parseInt(e.target.value) || 2 })}
+                  className="w-full bg-surface-light border border-border rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-gold"
+                />
+                <p className="text-xs text-text-muted mt-1">
+                  e.g. 2 = banner appears after the 2nd section
+                </p>
+              </div>
+            )}
+
             {/* Title */}
             <div>
               <label className="block text-sm text-text-secondary mb-1">Title *</label>
@@ -576,7 +635,7 @@ export default function BannersPage() {
                 disabled={
                   createMutation.isPending ||
                   updateMutation.isPending ||
-                  !form.title ||
+                  (!form.title && form.type !== 'mid') ||
                   !form.imageUrl
                 }
                 className="px-4 py-2 rounded-xl bg-gold hover:bg-gold-light text-background text-sm font-semibold disabled:opacity-50"

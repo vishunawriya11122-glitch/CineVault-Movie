@@ -21,7 +21,7 @@ export class User {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  @Prop({ required: true, lowercase: true, trim: true })
   email: string;
 
   @Prop({ select: false })
@@ -83,6 +83,6 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
-UserSchema.index({ email: 1 });
-UserSchema.index({ googleId: 1 });
+UserSchema.index({ email: 1, authProvider: 1 }, { unique: true });
+UserSchema.index({ googleId: 1 }, { sparse: true });
 UserSchema.index({ role: 1 });

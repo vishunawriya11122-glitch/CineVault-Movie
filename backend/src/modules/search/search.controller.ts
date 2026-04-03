@@ -28,12 +28,13 @@ export class SearchController {
     @Query('yearMax') yearMax?: number,
     @Query('ratingMin') ratingMin?: number,
     @Query('sort') sort?: string,
+    @Query('platform') platform?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
     return this.searchService.search(
       q ?? '',
-      { contentType, genre, language, yearMin, yearMax, ratingMin, sort },
+      { contentType, genre, language, yearMin, yearMax, ratingMin, sort, platform },
       page,
       limit,
     );
@@ -61,5 +62,32 @@ export class SearchController {
   @ApiOperation({ summary: 'Get all available languages' })
   async languages() {
     return this.searchService.getLanguages();
+  }
+
+  @Get('platforms')
+  @ApiOperation({ summary: 'Get all available platforms' })
+  async platforms() {
+    return this.searchService.getPlatforms();
+  }
+
+  @Get('years')
+  @ApiOperation({ summary: 'Get all available release years' })
+  async years() {
+    return this.searchService.getYears();
+  }
+
+  @Get('ranking')
+  @ApiOperation({ summary: 'Get ranked content by category' })
+  @ApiQuery({ name: 'type', required: false, description: 'download or rating' })
+  @ApiQuery({ name: 'contentType', required: false })
+  @ApiQuery({ name: 'genre', required: false })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async ranking(
+    @Query('type') type?: string,
+    @Query('contentType') contentType?: string,
+    @Query('genre') genre?: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.searchService.getRanking(type, contentType, genre, limit);
   }
 }

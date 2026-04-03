@@ -17,6 +17,8 @@ import {
   Download,
   Cloud,
   Clock,
+  Trophy,
+  Settings,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '../store/auth';
@@ -37,6 +39,8 @@ const navItems = [
   { to: '/tmdb-import', icon: Download, label: 'TMDB Import' },
   { to: '/upcoming', icon: Clock, label: 'Upcoming' },
   { to: '/storage', icon: Cloud, label: 'Storage CDN' },
+  { to: '/ranking', icon: Trophy, label: 'Ranking' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Layout() {

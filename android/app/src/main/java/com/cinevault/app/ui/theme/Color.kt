@@ -4,11 +4,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-// Primary Palette — VELORA Purple & Gold
-val BackgroundDark = Color(0xFF0B0515)
-val SurfaceDark = Color(0xFF130D22)
-val SurfaceElevated = Color(0xFF1C1230)
-val BorderSubtle = Color(0xFF2D1F4E)
+// Primary Palette — VELORA Dark Grey & Gold
+val BackgroundDark = Color(0xFF121212)
+val SurfaceDark = Color(0xFF1E1E1E)
+val SurfaceElevated = Color(0xFF2A2A2A)
+val BorderSubtle = Color(0xFF3A3A3A)
 
 // Accent — Metallic Gold
 val AccentGold = Color(0xFFD4AF37)
@@ -22,8 +22,8 @@ val AccentPurpleDark = Color(0xFF6C3483)
 
 // Text
 val TextPrimary = Color(0xFFFFFFFF)
-val TextSecondary = Color(0xFFB0A3C4)
-val TextMuted = Color(0xFF6B5E80)
+val TextSecondary = Color(0xFFB0B0B0)
+val TextMuted = Color(0xFF6B6B6B)
 
 // Semantic
 val RatingGold = Color(0xFFD4AF37)
@@ -33,7 +33,7 @@ val WarningAmber = Color(0xFFF59E0B)
 
 // Gradients
 val GradientOverlayStart = Color(0x00000000)
-val GradientOverlayEnd = Color(0xFF0B0515)
+val GradientOverlayEnd = Color(0xFF121212)
 
 @Immutable
 data class CineVaultColors(

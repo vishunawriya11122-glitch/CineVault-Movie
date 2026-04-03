@@ -129,6 +129,27 @@ export class AuthController {
     return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
   }
 
+  // ── Email OTP Authentication ──────────────────────────────────────────────
+
+  @Post('email-otp/send')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send login OTP to an email address' })
+  async sendEmailOtp(@Body() body: { email: string }) {
+    return this.authService.sendEmailLoginOtp(body.email);
+  }
+
+  @Post('email-otp/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify email OTP and login/register' })
+  async verifyEmailOtp(
+    @Body() body: { email: string; otp: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.verifyEmailLoginOtp(body.email, body.otp);
+    this.setRefreshTokenCookie(res, result.refreshToken);
+    return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+  }
+
   // ── Phone OTP Authentication ──────────────────────────────────────────────
 
   @Post('phone/send-otp')

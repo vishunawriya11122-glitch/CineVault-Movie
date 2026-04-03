@@ -16,6 +16,12 @@ export class BannersController {
     return this.bannersService.getActiveBanners(section);
   }
 
+  @Get('mid')
+  @ApiOperation({ summary: 'Get active mid-banners (filtered by section)' })
+  async getMidBanners(@Query('section') section?: string) {
+    return this.bannersService.getMidBanners(section);
+  }
+
   @Get('all')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'), RolesGuard)

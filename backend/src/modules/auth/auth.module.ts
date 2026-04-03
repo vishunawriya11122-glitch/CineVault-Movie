@@ -9,6 +9,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { User, UserSchema } from '../../schemas/user.schema';
 import { PhoneOtp, PhoneOtpSchema } from '../../schemas/phone-otp.schema';
+import { EmailOtp, EmailOtpSchema } from '../../schemas/email-otp.schema';
 
 const optionalProviders = [];
 if (process.env.GOOGLE_CLIENT_ID) {
@@ -31,6 +32,7 @@ if (process.env.GOOGLE_CLIENT_ID) {
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: PhoneOtp.name, schema: PhoneOtpSchema },
+      { name: EmailOtp.name, schema: EmailOtpSchema },
     ]),
   ],
   controllers: [AuthController],

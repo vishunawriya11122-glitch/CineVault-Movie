@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.firstOrNull
 fun SplashScreen(
     onNavigateToOnboarding: () -> Unit,
     onNavigateToHome: () -> Unit,
-    onNavigateToLogin: () -> Unit,
+    onNavigateToLogin: () -> Unit = onNavigateToHome,
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     var logoAlpha by remember { mutableFloatStateOf(0f) }
@@ -45,13 +45,11 @@ fun SplashScreen(
         taglineAlpha = 1f
         delay(1400)
 
-        val isLoggedIn = viewModel.isLoggedIn.firstOrNull() ?: false
         val hasOnboarded = viewModel.hasCompletedOnboarding.firstOrNull() ?: false
 
         when {
-            isLoggedIn -> onNavigateToHome()
             !hasOnboarded -> onNavigateToOnboarding()
-            else -> onNavigateToLogin()
+            else -> onNavigateToHome()
         }
     }
 

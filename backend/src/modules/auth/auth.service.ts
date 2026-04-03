@@ -3,6 +3,8 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  OnModuleInit,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -13,18 +15,57 @@ import * as nodemailer from 'nodemailer';
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserDocument, AuthProvider } from '../../schemas/user.schema';
 import { PhoneOtp, PhoneOtpDocument } from '../../schemas/phone-otp.schema';
+import { EmailOtp, EmailOtpDocument } from '../../schemas/email-otp.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-export class AuthService {
+export class AuthService implements OnModuleInit {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(PhoneOtp.name) private phoneOtpModel: Model<PhoneOtpDocument>,
+    @InjectModel(EmailOtp.name) private emailOtpModel: Model<EmailOtpDocument>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
 
+  async onModuleInit() {
+    // Drop old unique email-only index and sync to compound {email, authProvider}
+    try {
+      const collection = this.userModel.collection;
+      const indexes = await collection.indexes();
+      const emailOnly = indexes.find(
+        (idx: any) =>
+          idx.key?.email && !idx.key?.authProvider && idx.unique,
+      );
+      if (emailOnly?.name) {
+        await collection.dropIndex(emailOnly.name);
+        this.logger.log('Dropped old unique email-only index');
+      }
+    } catch (e) {
+      // index may not exist — safe to ignore
+    }
+    await this.userModel.syncIndexes();
+
+    // Migrate legacy users that don't have authProvider set
+    const migrated = await this.userModel.updateMany(
+      { authProvider: { $exists: false } },
+      { $set: { authProvider: AuthProvider.LOCAL } },
+    );
+    if (migrated.modifiedCount > 0) {
+      this.logger.log(`Migrated ${migrated.modifiedCount} legacy users to authProvider=local`);
+    }
+    const migratedNull = await this.userModel.updateMany(
+      { authProvider: null },
+      { $set: { authProvider: AuthProvider.LOCAL } },
+    );
+    if (migratedNull.modifiedCount > 0) {
+      this.logger.log(`Migrated ${migratedNull.modifiedCount} null-provider users to authProvider=local`);
+    }
+  }
+
   async register(dto: RegisterDto): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-    const existingUser = await this.userModel.findOne({ email: dto.email.toLowerCase() });
+    const existingUser = await this.userModel.findOne({ email: dto.email.toLowerCase(), authProvider: AuthProvider.LOCAL });
     if (existingUser) {
       throw new ConflictException('An account with this email already exists');
     }
@@ -45,7 +86,10 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-    const user = await this.userModel.findOne({ email: dto.email.toLowerCase() }).select('+password');
+    const user = await this.userModel.findOne({
+      email: dto.email.toLowerCase(),
+      authProvider: { $in: [AuthProvider.LOCAL, null] },
+    }).select('+password');
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -77,15 +121,16 @@ export class AuthService {
     let user = await this.userModel.findOne({ googleId: profile.id });
 
     if (!user) {
-      user = await this.userModel.findOne({ email: profile.emails[0].value });
+      // Look for existing Google-provider account with same email
+      user = await this.userModel.findOne({ email: profile.emails[0].value.toLowerCase(), authProvider: AuthProvider.GOOGLE });
       if (user) {
         user.googleId = profile.id;
-        user.authProvider = AuthProvider.GOOGLE;
         if (!user.avatarUrl && profile.photos?.[0]?.value) {
           user.avatarUrl = profile.photos[0].value;
         }
         await user.save();
       } else {
+        // Create a new Google account (separate from any email/local account)
         user = await this.userModel.create({
           name: profile.displayName,
           email: profile.emails[0].value,
@@ -130,7 +175,7 @@ export class AuthService {
   }
 
   async forgotPassword(email: string): Promise<{ message: string }> {
-    const user = await this.userModel.findOne({ email: email.toLowerCase() });
+    const user = await this.userModel.findOne({ email: email.toLowerCase(), authProvider: AuthProvider.LOCAL });
     if (!user) {
       return { message: 'If an account exists with that email, an OTP has been sent' };
     }
@@ -190,7 +235,7 @@ export class AuthService {
 
   async verifyOtp(email: string, otp: string): Promise<{ message: string; resetToken: string }> {
     const user = await this.userModel
-      .findOne({ email: email.toLowerCase(), passwordResetOtpExpires: { $gt: new Date() } })
+      .findOne({ email: email.toLowerCase(), authProvider: AuthProvider.LOCAL, passwordResetOtpExpires: { $gt: new Date() } })
       .select('+passwordResetOtp');
 
     if (!user || !user.passwordResetOtp) {
@@ -259,25 +304,36 @@ export class AuthService {
   }
 
   /**
-   * Google Login (mobile) — user MUST already exist in our database.
-   * Throws 401 if the Google account is not registered.
+   * Google Login (mobile) — find-or-create a Google account.
+   * Never links to an existing email/local account.
    */
   async googleVerifyIdToken(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: any }> {
     const { uid, email, name, picture } = await this.verifyGoogleToken(idToken);
     if (!email) throw new BadRequestException('Google account has no email');
 
-    // LOGIN ONLY — find existing user
+    // Find existing Google account by googleId
     let user = await this.userModel.findOne({ googleId: uid });
     if (!user) {
-      user = await this.userModel.findOne({ email: email.toLowerCase() });
-      if (!user) {
-        throw new UnauthorizedException('This account is not registered with us. Please sign up with Google first.');
-      }
-      // Link Google ID to existing email account
-      user.googleId = uid;
-      user.authProvider = AuthProvider.GOOGLE;
-      if (!user.avatarUrl && picture) user.avatarUrl = picture;
-      await user.save();
+      // Fallback: find by email + google provider
+      user = await this.userModel.findOne({ email: email.toLowerCase(), authProvider: AuthProvider.GOOGLE });
+    }
+
+    if (!user) {
+      // Auto-create a new Google account (completely separate from any email/local account)
+      user = await this.userModel.create({
+        name: name ?? email.split('@')[0],
+        email: email.toLowerCase(),
+        googleId: uid,
+        authProvider: AuthProvider.GOOGLE,
+        avatarUrl: picture,
+        isEmailVerified: true,
+      });
+    } else {
+      // Ensure googleId is linked and avatar is up to date
+      let needsSave = false;
+      if (!user.googleId) { user.googleId = uid; needsSave = true; }
+      if (picture && !user.avatarUrl) { user.avatarUrl = picture; needsSave = true; }
+      if (needsSave) await user.save();
     }
 
     if (user.isSuspended) throw new UnauthorizedException('Your account has been suspended');
@@ -290,32 +346,10 @@ export class AuthService {
   }
 
   /**
-   * Google Sign-Up (mobile) — creates a new account.
-   * Throws 409 if the Google account is already registered.
+   * Google Sign-Up (mobile) — same find-or-create flow as login.
    */
   async googleSignup(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-    const { uid, email, name, picture } = await this.verifyGoogleToken(idToken);
-    if (!email) throw new BadRequestException('Google account has no email');
-
-    // SIGNUP ONLY — must NOT already exist
-    const existing = await this.userModel.findOne({
-      $or: [{ googleId: uid }, { email: email.toLowerCase() }],
-    });
-    if (existing) {
-      throw new ConflictException('This account is already registered. Please use Login with Google.');
-    }
-
-    const user = await this.userModel.create({
-      name: name ?? email.split('@')[0],
-      email: email.toLowerCase(),
-      googleId: uid,
-      authProvider: AuthProvider.GOOGLE,
-      avatarUrl: picture,
-      isEmailVerified: true,
-    });
-
-    const tokens = await this.generateTokens(user);
-    return { ...tokens, user: this.sanitizeUser(user) };
+    return this.googleVerifyIdToken(idToken);
   }
 
   /**
@@ -516,6 +550,135 @@ export class AuthService {
     }
   }
 
+  // ── Email OTP Authentication ──────────────────────────────────────────────
+
+  /**
+   * Send a login/signup OTP to an email address.
+   * The user does NOT need an existing account — one will be created on verify.
+   */
+  async sendEmailLoginOtp(email: string): Promise<{ message: string; devOtp?: string }> {
+    const normalizedEmail = email.toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      throw new BadRequestException('Please enter a valid email address');
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    // Remove any existing OTP for this email
+    await this.emailOtpModel.deleteMany({ email: normalizedEmail });
+
+    await this.emailOtpModel.create({
+      email: normalizedEmail,
+      otpHash,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5-minute expiry
+    });
+
+    // Send OTP via SMTP
+    const smtpEmail = this.configService.get<string>('SMTP_EMAIL', '');
+    const smtpPass = this.configService.get<string>('SMTP_PASSWORD', '');
+    if (!smtpEmail || !smtpPass) {
+      console.warn(`[AuthService] SMTP not configured. Email Login OTP for ${normalizedEmail}: ${otp}`);
+      return { message: 'OTP generated (SMTP not configured)', devOtp: otp };
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: smtpEmail, pass: smtpPass },
+      });
+      await transporter.sendMail({
+        from: `"VELORA" <${smtpEmail}>`,
+        to: normalizedEmail,
+        subject: 'VELORA — Login OTP',
+        html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0B0515;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
+<table width="480" style="background:#130D22;border-radius:16px;border:1px solid #2D1F4E;overflow:hidden;">
+<tr><td style="padding:28px 32px;text-align:center;background:linear-gradient(135deg,#1C1230,#0B0515);">
+  <h1 style="margin:0;font-size:28px;letter-spacing:6px;color:#D4AF37;">VELORA</h1>
+  <p style="margin:8px 0 0;color:#9B59B6;font-size:12px;letter-spacing:2px;">PREMIUM STREAMING</p>
+</td></tr>
+<tr><td style="padding:32px;">
+  <p style="margin:0 0 8px;color:#B0A3C4;font-size:15px;">Hello,</p>
+  <p style="color:#B0A3C4;font-size:14px;line-height:1.6;">Use the code below to sign in to your VELORA account:</p>
+  <div style="margin:28px 0;text-align:center;">
+    <div style="display:inline-block;background:#0B0515;border:1.5px solid #D4AF37;border-radius:12px;padding:18px 36px;">
+      <span style="font-size:36px;font-weight:bold;letter-spacing:10px;color:#D4AF37;">${otp}</span>
+    </div>
+  </div>
+  <p style="text-align:center;margin:0 0 4px;color:#6B5E80;font-size:12px;">This code expires in <strong style="color:#D4AF37;">5 minutes</strong>.</p>
+  <p style="text-align:center;margin:0;color:#6B5E80;font-size:12px;">If you did not request this, please ignore this email.</p>
+</td></tr>
+<tr><td style="padding:16px 32px;background:#0B0515;text-align:center;border-top:1px solid #2D1F4E;">
+  <p style="margin:0;color:#6B5E80;font-size:11px;">&copy; 2026 VELORA. All rights reserved.</p>
+</td></tr>
+</table></td></tr></table></body></html>`,
+      });
+      this.logger.log(`Email login OTP sent to: ${normalizedEmail}`);
+    } catch (e) {
+      this.logger.error(`Failed to send email login OTP: ${e.message}`);
+    }
+
+    return { message: 'OTP sent to your email address' };
+  }
+
+  /**
+   * Verify email login OTP and return JWT tokens.
+   * Auto-creates a new account if one doesn't exist.
+   */
+  async verifyEmailLoginOtp(
+    email: string,
+    otp: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const otpRecord = await this.emailOtpModel.findOne({
+      email: normalizedEmail,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!otpRecord) {
+      throw new BadRequestException('OTP has expired or was never sent. Please request a new OTP');
+    }
+
+    const isValid = await bcrypt.compare(otp, otpRecord.otpHash);
+    if (!isValid) {
+      throw new BadRequestException('Invalid OTP. Please check and try again');
+    }
+
+    // Consume the OTP
+    await this.emailOtpModel.deleteOne({ _id: (otpRecord as any)._id });
+
+    // Find or create user with local auth provider
+    let user = await this.userModel.findOne({
+      email: normalizedEmail,
+      authProvider: { $in: [AuthProvider.LOCAL, null] },
+    });
+
+    if (!user) {
+      user = await this.userModel.create({
+        name: normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        authProvider: AuthProvider.LOCAL,
+        isEmailVerified: true,
+      });
+    } else {
+      user.isEmailVerified = true;
+      user.lastActiveAt = new Date();
+      await user.save();
+    }
+
+    if (user.isSuspended) {
+      throw new UnauthorizedException('Your account has been suspended');
+    }
+
+    user.lastActiveAt = new Date();
+    await user.save();
+
+    const tokens = await this.generateTokens(user);
+    return { ...tokens, user: this.sanitizeUser(user) };
+  }
+
   async validateUser(userId: string): Promise<UserDocument | null> {
     return this.userModel.findById(userId);
   }
@@ -541,6 +704,7 @@ export class AuthService {
       email: user.email,
       avatarUrl: user.avatarUrl,
       role: user.role,
+      authProvider: user.authProvider,
       isEmailVerified: user.isEmailVerified,
     };
   }

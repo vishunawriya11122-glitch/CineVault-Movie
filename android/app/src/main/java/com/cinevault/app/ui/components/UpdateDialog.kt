@@ -83,7 +83,7 @@ fun UpdateDialog(info: AppVersionResponse, onDismiss: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
+                .background(Color(0xFF1E1E1E), RoundedCornerShape(16.dp))
                 .padding(24.dp)
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -132,7 +132,7 @@ fun UpdateDialog(info: AppVersionResponse, onDismiss: () -> Unit) {
                             progress = { animatedProgress },
                             modifier = Modifier.fillMaxWidth().height(8.dp),
                             color = Color(0xFFE50914),
-                            trackColor = Color(0xFF333355),
+                            trackColor = Color(0xFF333333),
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(

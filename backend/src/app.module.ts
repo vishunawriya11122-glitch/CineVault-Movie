@@ -24,6 +24,7 @@ import { AppVersionModule } from './modules/app-version/app-version.module';
 import { TmdbModule } from './modules/tmdb/tmdb.module';
 import { GdriveFolderModule } from './modules/gdrive-folder/gdrive-folder.module';
 import { BunnyModule } from './modules/bunny/bunny.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { BunnyModule } from './modules/bunny/bunny.module';
     TmdbModule,
     GdriveFolderModule,
     BunnyModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

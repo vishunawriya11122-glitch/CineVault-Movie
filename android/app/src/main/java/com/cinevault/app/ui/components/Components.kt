@@ -341,11 +341,13 @@ fun HorizontalMovieSection(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        // Section Header
-        SectionHeader(
-            title = section.title,
-            onSeeAll = onSeeMore
-        )
+        // Section Header (skip for mid_banner — it's a standalone clean banner)
+        if (section.type != "mid_banner") {
+            SectionHeader(
+                title = section.title,
+                onSeeAll = onSeeMore
+            )
+        }
         
         when (section.type) {
             "trending" -> {
@@ -367,20 +369,24 @@ fun HorizontalMovieSection(
                 }
             }
             "mid_banner" -> {
-                // Mid-page banner section
+                // Mid-page banner — single 16:9 clickable banner, no overlay
                 if (section.bannerImageUrl != null) {
+                    val targetId = section.contentId ?: section.items.firstOrNull()?.let { it.id }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
-                            .aspectRatio(1f)
+                            .aspectRatio(18f / 9f)
                             .clip(RoundedCornerShape(16.dp))
                             .background(CineVaultTheme.colors.surface)
-                            .clickable { section.items.firstOrNull()?.let { onMovieClick(it.id) } }
+                            .then(
+                                if (targetId != null) Modifier.clickable { onMovieClick(targetId) }
+                                else Modifier
+                            )
                     ) {
                         AsyncImage(
                             model = section.bannerImageUrl,
-                            contentDescription = section.title,
+                            contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )

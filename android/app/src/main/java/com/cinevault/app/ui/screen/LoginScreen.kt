@@ -56,9 +56,6 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    // Track which Google mode was launched: "login" or "signup"
-    var pendingGoogleMode by remember { mutableStateOf("") }
-
     // Google Sign-In client — sign out first each time to force the account picker
     val webClientId = stringResource(R.string.google_web_client_id)
     val googleSignInClient = remember(webClientId) {
@@ -78,11 +75,7 @@ fun LoginScreen(
                     .getResult(ApiException::class.java)
                 val idToken = account.idToken
                 if (idToken != null) {
-                    if (pendingGoogleMode == "signup") {
-                        viewModel.googleSignup(idToken)
-                    } else {
-                        viewModel.googleLogin(idToken)
-                    }
+                    viewModel.googleLogin(idToken)
                 } else {
                     viewModel.onGoogleSignInError(
                         "Could not get Google token. Make sure your Web Client ID in strings.xml is correct."
@@ -95,8 +88,7 @@ fun LoginScreen(
         // RESULT_CANCELED = user pressed back — no error needed
     }
 
-    fun launchGoogleSignIn(mode: String) {
-        pendingGoogleMode = mode
+    fun launchGoogleSignIn() {
         // Sign out first to always show the account picker
         googleSignInClient.signOut().addOnCompleteListener {
             googleLauncher.launch(googleSignInClient.signInIntent)
@@ -269,7 +261,7 @@ fun LoginScreen(
 
             // Google Sign-In button
             Button(
-                onClick = { launchGoogleSignIn("login") },
+                onClick = { launchGoogleSignIn() },
                 enabled = !uiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -293,43 +285,9 @@ fun LoginScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        "Login with Google",
+                        "Continue with Google",
                         style = CineVaultTheme.typography.body.copy(fontSize = 15.sp),
                         color = Color(0xFF1F1F1F),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Google Sign-Up button
-            OutlinedButton(
-                onClick = { launchGoogleSignIn("signup") },
-                enabled = !uiState.isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Color.White,
-                ),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CineVaultTheme.colors.border),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_google),
-                        contentDescription = "Google",
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Sign up with Google",
-                        style = CineVaultTheme.typography.body.copy(fontSize = 15.sp),
-                        color = Color.White,
                     )
                 }
             }

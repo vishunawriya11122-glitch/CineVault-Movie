@@ -27,6 +27,21 @@ android {
         buildConfigField("String", "DRIVE_WORKER_URL", "\"https://drive-index.vishunawriya11122.workers.dev\"")
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = System.getenv("KEYSTORE_FILE")
+            val keystorePassword = System.getenv("STORE_PASSWORD")
+            val keyAlias = System.getenv("KEY_ALIAS")
+            val keyPassword = System.getenv("KEY_PASSWORD")
+            if (keystoreFile != null && keystorePassword != null) {
+                storeFile = file(keystoreFile)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -34,6 +49,10 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "BASE_URL", "\"https://velora-backend-fopqpbthva-el.a.run.app/api/v1/\"")
             buildConfigField("String", "DRIVE_WORKER_URL", "\"https://drive-index.vishunawriya11122.workers.dev\"")
+            val signingConfig = signingConfigs.findByName("release")
+            if (signingConfig?.storeFile?.exists() == true) {
+                this.signingConfig = signingConfig
+            }
         }
     }
 

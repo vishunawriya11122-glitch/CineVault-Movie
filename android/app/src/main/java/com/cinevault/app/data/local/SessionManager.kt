@@ -29,6 +29,14 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
         private val AUTOPLAY_ENABLED = booleanPreferencesKey("autoplay_enabled")
         private val LIKED_MOVIE_IDS = stringSetPreferencesKey("liked_movie_ids")
         private val REFRESH_TOKEN = stringPreferencesKey("refresh_token")
+
+        // Saved accounts (persist across logout)
+        private val LAST_GOOGLE_NAME = stringPreferencesKey("last_google_name")
+        private val LAST_GOOGLE_EMAIL = stringPreferencesKey("last_google_email")
+        private val LAST_GOOGLE_AVATAR = stringPreferencesKey("last_google_avatar")
+        private val LAST_PHONE_NAME = stringPreferencesKey("last_phone_name")
+        private val LAST_PHONE_NUMBER = stringPreferencesKey("last_phone_number")
+        private val LAST_AUTH_PROVIDER = stringPreferencesKey("last_auth_provider")
     }
 
     val accessToken: Flow<String?> = context.dataStore.data.map { it[ACCESS_TOKEN] }
@@ -52,6 +60,14 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
     val playbackQuality: Flow<String?> = context.dataStore.data.map { it[DEFAULT_QUALITY] ?: "Auto" }
 
     val likedMovieIds: Flow<Set<String>> = context.dataStore.data.map { it[LIKED_MOVIE_IDS] ?: emptySet() }
+
+    // Saved account flows
+    val lastGoogleName: Flow<String?> = context.dataStore.data.map { it[LAST_GOOGLE_NAME] }
+    val lastGoogleEmail: Flow<String?> = context.dataStore.data.map { it[LAST_GOOGLE_EMAIL] }
+    val lastGoogleAvatar: Flow<String?> = context.dataStore.data.map { it[LAST_GOOGLE_AVATAR] }
+    val lastPhoneName: Flow<String?> = context.dataStore.data.map { it[LAST_PHONE_NAME] }
+    val lastPhoneNumber: Flow<String?> = context.dataStore.data.map { it[LAST_PHONE_NUMBER] }
+    val lastAuthProvider: Flow<String?> = context.dataStore.data.map { it[LAST_AUTH_PROVIDER] }
 
     suspend fun toggleLikedMovie(movieId: String) {
         context.dataStore.edit { prefs ->
@@ -103,7 +119,43 @@ class SessionManager @Inject constructor(@ApplicationContext private val context
     }
 
     suspend fun clearSession() {
-        context.dataStore.edit { it.clear() }
+        context.dataStore.edit { prefs ->
+            // Preserve saved accounts and onboarding across logout
+            val onboarding = prefs[ONBOARDING_COMPLETED]
+            val gName = prefs[LAST_GOOGLE_NAME]
+            val gEmail = prefs[LAST_GOOGLE_EMAIL]
+            val gAvatar = prefs[LAST_GOOGLE_AVATAR]
+            val pName = prefs[LAST_PHONE_NAME]
+            val pNumber = prefs[LAST_PHONE_NUMBER]
+            val provider = prefs[LAST_AUTH_PROVIDER]
+
+            prefs.clear()
+
+            onboarding?.let { prefs[ONBOARDING_COMPLETED] = it }
+            gName?.let { prefs[LAST_GOOGLE_NAME] = it }
+            gEmail?.let { prefs[LAST_GOOGLE_EMAIL] = it }
+            gAvatar?.let { prefs[LAST_GOOGLE_AVATAR] = it }
+            pName?.let { prefs[LAST_PHONE_NAME] = it }
+            pNumber?.let { prefs[LAST_PHONE_NUMBER] = it }
+            provider?.let { prefs[LAST_AUTH_PROVIDER] = it }
+        }
+    }
+
+    suspend fun saveGoogleAccount(name: String, email: String, avatar: String?) {
+        context.dataStore.edit { prefs ->
+            prefs[LAST_GOOGLE_NAME] = name
+            prefs[LAST_GOOGLE_EMAIL] = email
+            avatar?.let { prefs[LAST_GOOGLE_AVATAR] = it }
+            prefs[LAST_AUTH_PROVIDER] = "google"
+        }
+    }
+
+    suspend fun savePhoneAccount(name: String, phone: String) {
+        context.dataStore.edit { prefs ->
+            prefs[LAST_PHONE_NAME] = name
+            prefs[LAST_PHONE_NUMBER] = phone
+            prefs[LAST_AUTH_PROVIDER] = "phone"
+        }
     }
 
     suspend fun saveName(name: String) {

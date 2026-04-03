@@ -116,10 +116,11 @@ class ContentRepository @Inject constructor(private val api: CineVaultApi) {
         yearMax: Int? = null,
         ratingMin: Double? = null,
         sort: String? = null,
+        platform: String? = null,
         page: Int = 1,
     ): Result<SearchResponse> {
         return try {
-            val response = api.search(query, contentType, genre, language, yearMin, yearMax, ratingMin, sort, page)
+            val response = api.search(query, contentType, genre, language, yearMin, yearMax, ratingMin, sort, platform, page)
             if (response.isSuccessful && response.body() != null) {
                 Result.Success(response.body()!!)
             } else {
@@ -173,6 +174,41 @@ class ContentRepository @Inject constructor(private val api: CineVaultApi) {
             else Result.Error(response.message())
         } catch (e: Exception) {
             Result.Error(e.localizedMessage ?: "Failed to load languages")
+        }
+    }
+
+    suspend fun getPlatforms(): Result<List<String>> {
+        return try {
+            val response = api.getPlatforms()
+            if (response.isSuccessful) Result.Success(response.body() ?: emptyList())
+            else Result.Error(response.message())
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "Failed to load platforms")
+        }
+    }
+
+    suspend fun getYears(): Result<List<Int>> {
+        return try {
+            val response = api.getYears()
+            if (response.isSuccessful) Result.Success(response.body() ?: emptyList())
+            else Result.Error(response.message())
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "Failed to load years")
+        }
+    }
+
+    suspend fun getRanking(
+        type: String = "download",
+        contentType: String? = null,
+        genre: String? = null,
+        limit: Int = 20,
+    ): Result<List<MovieDto>> {
+        return try {
+            val response = api.getRanking(type, contentType, genre, limit)
+            if (response.isSuccessful) Result.Success(response.body() ?: emptyList())
+            else Result.Error(response.message())
+        } catch (e: Exception) {
+            Result.Error(e.localizedMessage ?: "Failed to load ranking")
         }
     }
 

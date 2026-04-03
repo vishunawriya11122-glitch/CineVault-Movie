@@ -3,6 +3,11 @@ import { Document, Types } from 'mongoose';
 
 export type BannerDocument = Banner & Document;
 
+export enum BannerType {
+  HERO = 'hero',
+  MID = 'mid',
+}
+
 export enum BannerSection {
   HOME = 'home',
   MOVIES = 'movies',
@@ -50,6 +55,12 @@ export class Banner {
 
   @Prop({ enum: BannerSection, default: BannerSection.HOME })
   section: BannerSection;
+
+  @Prop({ enum: BannerType, default: BannerType.HERO })
+  type: BannerType;
+
+  @Prop({ default: 2 })
+  position: number; // For mid banners: insert after this many sections (e.g. 2 = after 2nd section)
 }
 
 export const BannerSchema = SchemaFactory.createForClass(Banner);

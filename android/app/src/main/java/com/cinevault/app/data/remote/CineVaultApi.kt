@@ -34,6 +34,12 @@ interface CineVaultApi {
     @POST("auth/google/mobile/signup")
     suspend fun googleMobileSignup(@Body request: GoogleTokenRequest): Response<AuthResponse>
 
+    @POST("auth/email-otp/send")
+    suspend fun sendEmailOtp(@Body request: SendEmailOtpRequest): Response<MessageResponse>
+
+    @POST("auth/email-otp/verify")
+    suspend fun verifyEmailOtp(@Body request: VerifyEmailOtpRequest): Response<AuthResponse>
+
     @POST("auth/phone/send-otp")
     suspend fun sendPhoneOtp(@Body request: SendPhoneOtpRequest): Response<MessageResponse>
 
@@ -147,6 +153,7 @@ interface CineVaultApi {
         @Query("yearMax") yearMax: Int? = null,
         @Query("ratingMin") ratingMin: Double? = null,
         @Query("sort") sort: String? = null,
+        @Query("platform") platform: String? = null,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 20,
     ): Response<SearchResponse>
@@ -162,6 +169,20 @@ interface CineVaultApi {
 
     @GET("search/languages")
     suspend fun getLanguages(): Response<List<String>>
+
+    @GET("search/platforms")
+    suspend fun getPlatforms(): Response<List<String>>
+
+    @GET("search/years")
+    suspend fun getYears(): Response<List<Int>>
+
+    @GET("search/ranking")
+    suspend fun getRanking(
+        @Query("type") type: String = "download",
+        @Query("contentType") contentType: String? = null,
+        @Query("genre") genre: String? = null,
+        @Query("limit") limit: Int = 20,
+    ): Response<List<MovieDto>>
 
     // Watch Progress
     @POST("watch-progress")

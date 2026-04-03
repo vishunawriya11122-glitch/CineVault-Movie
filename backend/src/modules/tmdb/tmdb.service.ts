@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
+import { SettingsService } from '../settings/settings.service';
 import { Movie, MovieDocument, ContentType, ContentStatus } from '../../schemas/movie.schema';
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
@@ -61,21 +62,28 @@ export interface TmdbPreviewItem {
 
 @Injectable()
 export class TmdbService {
-  private accessToken: string;
+  private envToken: string;
 
   constructor(
     @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
     private configService: ConfigService,
+    private settingsService: SettingsService,
   ) {
-    this.accessToken = this.configService.get<string>('TMDB_ACCESS_TOKEN', '');
+    this.envToken = this.configService.get<string>('TMDB_ACCESS_TOKEN', '');
+  }
+
+  private async getToken(): Promise<string> {
+    if (this.envToken) return this.envToken;
+    return this.settingsService.getTmdbToken();
   }
 
   private async tmdbGet(path: string, params: Record<string, string> = {}): Promise<any> {
-    if (!this.accessToken) throw new BadRequestException('TMDB access token not configured');
+    const token = await this.getToken();
+    if (!token) throw new BadRequestException('TMDB access token not configured');
     const url = new URL(`${TMDB_BASE}${path}`);
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
     const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${this.accessToken}`, Accept: 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     });
     if (!res.ok) {
       const body = await res.text();

@@ -46,3 +46,9 @@ backend/uploads/
 admin/dist/
 admin/.vite/
 *.mp4
+
+backend/gcp-service-account.json
+backend/.env
+android/local.properties
+android/app/keystore.jks
+.env.local
