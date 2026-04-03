@@ -10,6 +10,10 @@ on:
         description: 'Version number (e.g. 1.2.3)'
         required: true
         default: '1.0.0'
+      release_notes:
+        description: "What's new in this version (shown in the in-app update popup)"
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -126,3 +130,40 @@ jobs:
             "https://blob.vercel-storage.com/velora-latest.json"
 
           echo "Metadata updated for version ${VERSION}"
+
+      - name: Update in-app version info on backend
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          BUILD_NUM="${{ github.run_number }}"
+          APK_URL="https://3upclzuvtnblwr5f.public.blob.vercel-storage.com/VELORA-latest.apk"
+          BACKEND_URL="https://velora-backend-fopqpbthva-el.a.run.app/api/v1"
+
+          # Determine release notes
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.release_notes }}" ]]; then
+            NOTES="${{ github.event.inputs.release_notes }}"
+          else
+            NOTES="Version ${VERSION} is now available with new improvements."
+          fi
+
+          # Login to get admin JWT
+          TOKEN=$(curl -s -X POST "${BACKEND_URL}/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${{ secrets.ADMIN_EMAIL }}\",\"password\":\"${{ secrets.ADMIN_PASSWORD }}\"}" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken',''))")
+
+          if [ -z "$TOKEN" ]; then
+            echo "⚠️ Could not get admin token — add ADMIN_EMAIL + ADMIN_PASSWORD secrets to enable auto backend update."
+            exit 0
+          fi
+
+          # Update app-version in backend
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "${BACKEND_URL}/app-version" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"versionCode\":${BUILD_NUM},\"versionName\":\"${VERSION}\",\"forceUpdate\":false,\"apkUrl\":\"${APK_URL}\",\"releaseNotes\":\"${NOTES}\"}")
+
+          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
+            echo "✅ Backend app-version updated to v${VERSION} (code: ${BUILD_NUM})"
+          else
+            echo "⚠️ Backend update returned HTTP ${HTTP_STATUS} — update manually via admin panel."
+          fi
