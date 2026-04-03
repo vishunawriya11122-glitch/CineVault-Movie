@@ -48,6 +48,7 @@ private val platformLogoMap = mapOf(
     "Amazon Prime Video" to R.drawable.ic_platform_prime_video,
     "Crunchyroll" to R.drawable.ic_platform_crunchyroll,
     "MX Player" to R.drawable.ic_platform_mx_player,
+    // HBO Max, SonyLIV, Apple TV+ use text chips (no logo drawables)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -330,7 +331,10 @@ private fun FilterChipsSection(
         }
 
         // ── Platform Row ──
-        val platformNames = listOf("All Platform", "Netflix", "Disney+ Hotstar", "ZEE5", "Amazon Prime Video", "Crunchyroll", "MX Player")
+        val platformNames = listOf(
+            "All Platform", "Netflix", "Disney+ Hotstar", "Amazon Prime Video",
+            "Crunchyroll", "HBO Max", "SonyLIV", "ZEE5", "Apple TV+", "MX Player",
+        )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(horizontal = 12.dp),

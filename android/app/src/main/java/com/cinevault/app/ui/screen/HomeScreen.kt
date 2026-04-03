@@ -1097,22 +1097,173 @@ fun UpcomingSection(
 ) {
     if (movies.isEmpty()) return
 
-    // Sort movies by releaseDate
-    val sorted = remember(movies) {
-        movies.sortedBy { it.releaseDate ?: "9999" }
+    // ── Local filter state ──
+    var selectedPlatform by remember { mutableStateOf<String?>(null) }
+    var selectedContentType by remember { mutableStateOf<String?>(null) }
+
+    // Derive available platforms from the movie list
+    val availablePlatforms = remember(movies) {
+        movies.mapNotNull { it.platformOrigin?.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
     }
 
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(sorted) { movie ->
-            UpcomingMovieCard(
-                movie = movie,
-                onClick = { onMovieClick(movie.id) },
-                onAddToList = { onAddToList(movie.id) },
-                onRemoveFromList = { onRemoveFromList(movie.id) },
-            )
+    // Content types present in the list
+    val contentTypeEntries = listOf(
+        null to "All",
+        "movie" to "Movies",
+        "web_series" to "TV Shows",
+        "anime" to "Anime",
+    )
+
+    // Apply filters
+    val filtered = remember(movies, selectedPlatform, selectedContentType) {
+        movies
+            .filter { selectedPlatform == null || it.platformOrigin?.trim() == selectedPlatform }
+            .filter { selectedContentType == null || it.contentType == selectedContentType }
+            .sortedBy { it.releaseDate ?: "9999" }
+    }
+
+    Column {
+        // ── Content Type Chips ──
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp),
+        ) {
+            items(contentTypeEntries, key = { it.first ?: "all" }) { (type, label) ->
+                val selected = selectedContentType == type
+                Box(
+                    modifier = Modifier
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (selected) CineVaultTheme.colors.accentGold.copy(alpha = 0.15f)
+                            else Color.Transparent
+                        )
+                        .border(
+                            width = if (selected) 1.5.dp else 1.dp,
+                            color = if (selected) CineVaultTheme.colors.accentGold.copy(alpha = 0.6f)
+                            else Color(0xFF3A3A3A),
+                            shape = RoundedCornerShape(8.dp),
+                        )
+                        .clickable { selectedContentType = if (selected && type != null) null else type }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) CineVaultTheme.colors.accentGold
+                        else CineVaultTheme.colors.textSecondary,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
+        // ── OTT Platform Chips (only if platforms are present in data) ──
+        if (availablePlatforms.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) {
+                // "All" chip
+                item {
+                    val selected = selectedPlatform == null
+                    Box(
+                        modifier = Modifier
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) CineVaultTheme.colors.accentGold.copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                width = if (selected) 1.5.dp else 1.dp,
+                                color = if (selected) CineVaultTheme.colors.accentGold.copy(alpha = 0.6f)
+                                else Color(0xFF3A3A3A),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                            .clickable { selectedPlatform = null }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "All OTT",
+                            fontSize = 11.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) CineVaultTheme.colors.accentGold
+                            else CineVaultTheme.colors.textSecondary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                items(availablePlatforms, key = { it }) { platform ->
+                    val selected = selectedPlatform == platform
+                    Box(
+                        modifier = Modifier
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) Color(0xFF3A3A3A).copy(alpha = 0.5f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                width = if (selected) 1.5.dp else 1.dp,
+                                color = if (selected) CineVaultTheme.colors.accentGold.copy(alpha = 0.7f)
+                                else Color(0xFF3A3A3A),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                            .clickable { selectedPlatform = if (selected) null else platform }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = platform,
+                            fontSize = 11.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) CineVaultTheme.colors.accentGold
+                            else CineVaultTheme.colors.textPrimary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Filtered empty state ──
+        if (filtered.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No upcoming titles for selected filters",
+                    fontSize = 12.sp,
+                    color = CineVaultTheme.colors.textSecondary,
+                )
+            }
+        } else {
+            // ── Content Row ──
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(filtered) { movie ->
+                    UpcomingMovieCard(
+                        movie = movie,
+                        onClick = { onMovieClick(movie.id) },
+                        onAddToList = { onAddToList(movie.id) },
+                        onRemoveFromList = { onRemoveFromList(movie.id) },
+                    )
+                }
+            }
         }
     }
 }
