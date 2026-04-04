@@ -62,27 +62,6 @@ export default {
         return handleList(url, env);
       }
 
-      // ── Upload file (PUT /upload/series/show/s01/e01.mp4) ──
-      if (url.pathname.startsWith('/upload/') && request.method === 'PUT') {
-        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
-        const key = decodeURIComponent(url.pathname.slice('/upload/'.length));
-        return handleUpload(request, key, env);
-      }
-
-      // ── Create folder (PUT /folder/series/show/s01/) ──
-      if (url.pathname.startsWith('/folder/') && request.method === 'PUT') {
-        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
-        const key = decodeURIComponent(url.pathname.slice('/folder/'.length));
-        return handleCreateFolder(key, env);
-      }
-
-      // ── Delete file (DELETE /delete/series/show/s01/e01.mp4) ──
-      if (url.pathname.startsWith('/delete/') && request.method === 'DELETE') {
-        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
-        const key = decodeURIComponent(url.pathname.slice('/delete/'.length));
-        return handleDelete(key, env);
-      }
-
       // ── Multipart Upload: Create ──
       // POST /upload/multipart/create?key=series/show/s01/e01.mp4
       if (url.pathname === '/upload/multipart/create' && request.method === 'POST') {
@@ -130,6 +109,27 @@ export default {
         const upload = env.MEDIA.resumeMultipartUpload(key, uploadId);
         await upload.abort();
         return jsonResponse({ success: true });
+      }
+
+      // ── Upload file (PUT /upload/series/show/s01/e01.mp4) ──
+      if (url.pathname.startsWith('/upload/') && request.method === 'PUT') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = decodeURIComponent(url.pathname.slice('/upload/'.length));
+        return handleUpload(request, key, env);
+      }
+
+      // ── Create folder (PUT /folder/series/show/s01/) ──
+      if (url.pathname.startsWith('/folder/') && request.method === 'PUT') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = decodeURIComponent(url.pathname.slice('/folder/'.length));
+        return handleCreateFolder(key, env);
+      }
+
+      // ── Delete file (DELETE /delete/series/show/s01/e01.mp4) ──
+      if (url.pathname.startsWith('/delete/') && request.method === 'DELETE') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = decodeURIComponent(url.pathname.slice('/delete/'.length));
+        return handleDelete(key, env);
       }
 
       // ── Presigned info (GET /presign?key=series/show/s01/e01.mp4) ──
