@@ -16,9 +16,12 @@ import { Movie, MovieDocument } from '../../schemas/movie.schema';
 @Injectable()
 export class R2StorageService {
   private readonly logger = new Logger(R2StorageService.name);
-  private s3: S3Client;
+  private s3: S3Client | null = null;
   private bucket: string;
   private publicUrl: string;
+  private workerUrl: string;
+  private workerApiKey: string;
+  private useWorker: boolean;
 
   constructor(
     private config: ConfigService,
@@ -26,31 +29,44 @@ export class R2StorageService {
     @InjectModel(Season.name) private seasonModel: Model<SeasonDocument>,
     @InjectModel(Episode.name) private episodeModel: Model<EpisodeDocument>,
   ) {
-    // R2 uses S3-compatible API
-    // Falls back to the same S3_* env vars if R2-specific ones aren't set
-    this.s3 = new S3Client({
-      region: 'auto',
-      endpoint: config.get<string>('R2_ENDPOINT', config.get<string>('S3_ENDPOINT', '')),
-      credentials: {
-        accessKeyId: config.get<string>('R2_ACCESS_KEY', config.get<string>('S3_ACCESS_KEY', '')),
-        secretAccessKey: config.get<string>('R2_SECRET_KEY', config.get<string>('S3_SECRET_KEY', '')),
-      },
-    });
     this.bucket = config.get<string>('R2_BUCKET', config.get<string>('S3_BUCKET', 'velora-media'));
-    this.publicUrl = config.get<string>('R2_PUBLIC_URL', config.get<string>('CDN_BASE_URL', ''));
+    this.workerUrl = config.get<string>('R2_WORKER_URL', '').replace(/\/$/, '');
+    this.workerApiKey = config.get<string>('R2_WORKER_API_KEY', 'velora-r2-default-key');
+    this.publicUrl = config.get<string>('R2_PUBLIC_URL', config.get<string>('CDN_BASE_URL', this.workerUrl));
+
+    // Use Worker proxy if R2_WORKER_URL is set and S3 keys aren't available
+    const endpoint = config.get<string>('R2_ENDPOINT', config.get<string>('S3_ENDPOINT', ''));
+    const accessKey = config.get<string>('R2_ACCESS_KEY', config.get<string>('S3_ACCESS_KEY', ''));
+    const secretKey = config.get<string>('R2_SECRET_KEY', config.get<string>('S3_SECRET_KEY', ''));
+
+    if (endpoint && accessKey && secretKey) {
+      this.s3 = new S3Client({
+        region: 'auto',
+        endpoint,
+        credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+      });
+      this.useWorker = false;
+      this.logger.log('R2 Storage: Using S3-compatible API');
+    } else if (this.workerUrl) {
+      this.useWorker = true;
+      this.logger.log(`R2 Storage: Using Worker proxy at ${this.workerUrl}`);
+    } else {
+      this.useWorker = false;
+      this.logger.warn('R2 Storage: Not configured! Set R2_WORKER_URL or R2_ENDPOINT+R2_ACCESS_KEY+R2_SECRET_KEY');
+    }
   }
 
   // ── List top-level "folders" in a prefix ──
-  // e.g., prefix="" → ["series/", "anime/", "tv/"]
-  // e.g., prefix="series/" → ["series/breaking-bad/", "series/naruto/"]
   async listFolders(prefix: string = ''): Promise<{ folders: string[]; files: { key: string; size: number }[] }> {
+    if (this.useWorker) return this.listFoldersViaWorker(prefix);
+
     const command = new ListObjectsV2Command({
       Bucket: this.bucket,
       Prefix: prefix,
       Delimiter: '/',
     });
 
-    const result = await this.s3.send(command);
+    const result = await this.s3!.send(command);
 
     const folders = (result.CommonPrefixes || [])
       .map((p) => p.Prefix!)
@@ -69,6 +85,7 @@ export class R2StorageService {
 
   // ── List ALL files recursively under a prefix ──
   async listAllFiles(prefix: string): Promise<{ key: string; size: number }[]> {
+    if (this.useWorker) return this.listAllFilesViaWorker(prefix);
     const files: { key: string; size: number }[] = [];
     let continuationToken: string | undefined;
 
@@ -80,7 +97,7 @@ export class R2StorageService {
         MaxKeys: 1000,
       });
 
-      const result = await this.s3.send(command);
+      const result = await this.s3!.send(command);
 
       for (const obj of result.Contents || []) {
         if (obj.Key && this.isVideoFile(obj.Key)) {
@@ -298,9 +315,15 @@ export class R2StorageService {
     filename: string,
     contentType: string,
   ): Promise<{ uploadUrl: string; key: string; publicUrl: string }> {
-    // Sanitize folder path
     const cleanFolder = folder.replace(/^\/+|\/+$/g, '');
     const key = cleanFolder ? `${cleanFolder}/${filename}` : filename;
+
+    if (this.useWorker) {
+      // Return the worker upload URL — admin will PUT directly to the worker
+      const uploadUrl = `${this.workerUrl}/upload/${encodeURIComponent(key)}?apiKey=${encodeURIComponent(this.workerApiKey)}`;
+      const publicUrl = this.getPublicUrl(key);
+      return { uploadUrl, key, publicUrl };
+    }
 
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -308,7 +331,7 @@ export class R2StorageService {
       ContentType: contentType,
     });
 
-    const uploadUrl = await getSignedUrl(this.s3, command, { expiresIn: 3600 });
+    const uploadUrl = await getSignedUrl(this.s3!, command, { expiresIn: 3600 });
     const publicUrl = this.getPublicUrl(key);
 
     this.logger.log(`[R2] Presigned upload URL generated for: ${key}`);
@@ -318,35 +341,83 @@ export class R2StorageService {
   // ── Create a "folder" (zero-byte marker object) ──
   async createFolder(path: string): Promise<{ path: string }> {
     const folderKey = path.endsWith('/') ? path : path + '/';
+
+    if (this.useWorker) {
+      await fetch(`${this.workerUrl}/folder/${encodeURIComponent(folderKey)}?apiKey=${encodeURIComponent(this.workerApiKey)}`, {
+        method: 'PUT',
+      });
+      this.logger.log(`[R2 Worker] Folder created: ${folderKey}`);
+      return { path: folderKey };
+    }
+
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: folderKey,
       Body: '',
       ContentType: 'application/x-directory',
     });
-    await this.s3.send(command);
+    await this.s3!.send(command);
     this.logger.log(`[R2] Folder created: ${folderKey}`);
     return { path: folderKey };
   }
 
   // ── Delete a file from R2 ──
   async deleteFile(key: string): Promise<{ deleted: string }> {
+    if (this.useWorker) {
+      await fetch(`${this.workerUrl}/delete/${encodeURIComponent(key)}?apiKey=${encodeURIComponent(this.workerApiKey)}`, {
+        method: 'DELETE',
+      });
+      this.logger.log(`[R2 Worker] File deleted: ${key}`);
+      return { deleted: key };
+    }
+
     const command = new DeleteObjectCommand({
       Bucket: this.bucket,
       Key: key,
     });
-    await this.s3.send(command);
+    await this.s3!.send(command);
     this.logger.log(`[R2] File deleted: ${key}`);
     return { deleted: key };
   }
 
   // ── Get bucket info / stats ──
-  async getBucketInfo(): Promise<{ bucket: string; publicUrl: string; configured: boolean }> {
-    const endpoint = this.config.get<string>('R2_ENDPOINT', this.config.get<string>('S3_ENDPOINT', ''));
+  async getBucketInfo(): Promise<{ bucket: string; publicUrl: string; configured: boolean; mode: string }> {
     return {
       bucket: this.bucket,
-      publicUrl: this.publicUrl || `https://${this.bucket}.r2.dev`,
-      configured: !!(endpoint && this.bucket),
+      publicUrl: this.publicUrl || this.workerUrl || `https://${this.bucket}.r2.dev`,
+      configured: this.useWorker || !!this.s3,
+      mode: this.useWorker ? 'worker' : this.s3 ? 's3' : 'not-configured',
     };
+  }
+
+  // ═══════════════════════════════════════════
+  //  Worker Proxy Methods
+  // ═══════════════════════════════════════════
+
+  private async listFoldersViaWorker(prefix: string): Promise<{ folders: string[]; files: { key: string; size: number }[] }> {
+    const res = await fetch(`${this.workerUrl}/list?prefix=${encodeURIComponent(prefix)}&delimiter=/`);
+    const data = await res.json() as any;
+
+    const folders = (data.folders || []).map((f: any) => f.path || f);
+    const files = (data.files || [])
+      .filter((f: any) => this.isVideoFile(f.path || f.name || ''))
+      .map((f: any) => ({ key: f.path || f.name, size: f.size || 0 }));
+
+    return { folders, files };
+  }
+
+  private async listAllFilesViaWorker(prefix: string): Promise<{ key: string; size: number }[]> {
+    // Recursively list all files by traversing folders
+    const allFiles: { key: string; size: number }[] = [];
+    const queue = [prefix];
+
+    while (queue.length > 0) {
+      const currentPrefix = queue.shift()!;
+      const { folders, files } = await this.listFoldersViaWorker(currentPrefix);
+      allFiles.push(...files);
+      queue.push(...folders);
+    }
+
+    return allFiles;
   }
 }

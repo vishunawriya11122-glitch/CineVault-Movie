@@ -20,8 +20,8 @@
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Range',
+  'Access-Control-Allow-Methods': 'GET, HEAD, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Range, X-Api-Key',
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type',
 };
 
@@ -53,7 +53,7 @@ export default {
     try {
       // ── Health check ──
       if (url.pathname === '/' || url.pathname === '/health') {
-        return jsonResponse({ status: 'ok', service: 'CineVault R2 Media Worker' });
+        return jsonResponse({ status: 'ok', service: 'CineVault R2 Media Worker', bucket: 'velora-media' });
       }
 
       // ── List folder contents (for admin browsing) ──
@@ -62,7 +62,39 @@ export default {
         return handleList(url, env);
       }
 
-      // ── Serve file from R2 ──
+      // ── Upload file (PUT /upload/series/show/s01/e01.mp4) ──
+      if (url.pathname.startsWith('/upload/') && request.method === 'PUT') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = decodeURIComponent(url.pathname.slice('/upload/'.length));
+        return handleUpload(request, key, env);
+      }
+
+      // ── Create folder (PUT /folder/series/show/s01/) ──
+      if (url.pathname.startsWith('/folder/') && request.method === 'PUT') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = decodeURIComponent(url.pathname.slice('/folder/'.length));
+        return handleCreateFolder(key, env);
+      }
+
+      // ── Delete file (DELETE /delete/series/show/s01/e01.mp4) ──
+      if (url.pathname.startsWith('/delete/') && request.method === 'DELETE') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = decodeURIComponent(url.pathname.slice('/delete/'.length));
+        return handleDelete(key, env);
+      }
+
+      // ── Presigned info (GET /presign?key=series/show/s01/e01.mp4) ──
+      // Returns the direct upload URL for the worker
+      if (url.pathname === '/presign') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = url.searchParams.get('key');
+        if (!key) return jsonResponse({ error: 'Missing ?key= parameter' }, 400);
+        const uploadUrl = `${url.origin}/upload/${encodeURIComponent(key)}`;
+        const publicUrl = `${url.origin}/${key}`;
+        return jsonResponse({ uploadUrl, key, publicUrl });
+      }
+
+      // ── Serve file from R2 (default) ──
       // GET /series/breaking-bad/s01/e01-pilot.mp4
       const key = decodeURIComponent(url.pathname.slice(1)); // remove leading /
       if (!key) {
@@ -152,4 +184,36 @@ function jsonResponse(data, status = 200) {
       ...CORS_HEADERS,
     },
   });
+}
+
+// ── Check API key for write operations ──
+function checkApiKey(request, env) {
+  const apiKey = env.API_KEY || 'velora-r2-default-key';
+  const provided = request.headers.get('X-Api-Key') || new URL(request.url).searchParams.get('apiKey');
+  return provided === apiKey;
+}
+
+// ── Upload a file to R2 ──
+async function handleUpload(request, key, env) {
+  const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
+  await env.MEDIA.put(key, request.body, {
+    httpMetadata: { contentType },
+  });
+  const publicUrl = `${new URL(request.url).origin}/${key}`;
+  return jsonResponse({ success: true, key, publicUrl, size: request.headers.get('Content-Length') });
+}
+
+// ── Create a folder marker ──
+async function handleCreateFolder(key, env) {
+  const folderKey = key.endsWith('/') ? key : key + '/';
+  await env.MEDIA.put(folderKey, '', {
+    httpMetadata: { contentType: 'application/x-directory' },
+  });
+  return jsonResponse({ success: true, path: folderKey });
+}
+
+// ── Delete a file from R2 ──
+async function handleDelete(key, env) {
+  await env.MEDIA.delete(key);
+  return jsonResponse({ success: true, deleted: key });
 }
