@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Param,
   Body,
   Query,
@@ -18,6 +19,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 export class R2StorageController {
   constructor(private readonly r2: R2StorageService) {}
 
+  // Bucket info
+  // GET /r2/info
+  @Get('info')
+  async getInfo() {
+    return this.r2.getBucketInfo();
+  }
+
   // Browse R2 bucket folders/files
   // GET /r2/browse?path=series/breaking-bad/
   @Get('browse')
@@ -30,6 +38,29 @@ export class R2StorageController {
   @Get('preview')
   async previewStructure(@Query('path') path: string) {
     return this.r2.previewSeriesStructure(path);
+  }
+
+  // Get presigned URL for direct upload
+  // POST /r2/presigned-url { folder, filename, contentType }
+  @Post('presigned-url')
+  async getPresignedUrl(
+    @Body() body: { folder: string; filename: string; contentType: string },
+  ) {
+    return this.r2.getPresignedUploadUrl(body.folder, body.filename, body.contentType);
+  }
+
+  // Create folder in R2
+  // POST /r2/folder { path: "series/naruto/s01/" }
+  @Post('folder')
+  async createFolder(@Body() body: { path: string }) {
+    return this.r2.createFolder(body.path);
+  }
+
+  // Delete file from R2
+  // DELETE /r2/file?key=series/naruto/s01/e01.mp4
+  @Delete('file')
+  async deleteFile(@Query('key') key: string) {
+    return this.r2.deleteFile(key);
   }
 
   // Import series from R2 folder into database

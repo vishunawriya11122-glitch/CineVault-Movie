@@ -6,7 +6,10 @@ import {
   S3Client,
   ListObjectsV2Command,
   HeadObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Season, SeasonDocument, Episode, EpisodeDocument } from '../../schemas/series.schema';
 import { Movie, MovieDocument } from '../../schemas/movie.schema';
 
@@ -287,5 +290,63 @@ export class R2StorageService {
       return `${this.publicUrl.replace(/\/$/, '')}/${key}`;
     }
     return `https://${this.bucket}.r2.dev/${key}`;
+  }
+
+  // ── Get presigned URL for direct upload to R2 from browser ──
+  async getPresignedUploadUrl(
+    folder: string,
+    filename: string,
+    contentType: string,
+  ): Promise<{ uploadUrl: string; key: string; publicUrl: string }> {
+    // Sanitize folder path
+    const cleanFolder = folder.replace(/^\/+|\/+$/g, '');
+    const key = cleanFolder ? `${cleanFolder}/${filename}` : filename;
+
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(this.s3, command, { expiresIn: 3600 });
+    const publicUrl = this.getPublicUrl(key);
+
+    this.logger.log(`[R2] Presigned upload URL generated for: ${key}`);
+    return { uploadUrl, key, publicUrl };
+  }
+
+  // ── Create a "folder" (zero-byte marker object) ──
+  async createFolder(path: string): Promise<{ path: string }> {
+    const folderKey = path.endsWith('/') ? path : path + '/';
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: folderKey,
+      Body: '',
+      ContentType: 'application/x-directory',
+    });
+    await this.s3.send(command);
+    this.logger.log(`[R2] Folder created: ${folderKey}`);
+    return { path: folderKey };
+  }
+
+  // ── Delete a file from R2 ──
+  async deleteFile(key: string): Promise<{ deleted: string }> {
+    const command = new DeleteObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    await this.s3.send(command);
+    this.logger.log(`[R2] File deleted: ${key}`);
+    return { deleted: key };
+  }
+
+  // ── Get bucket info / stats ──
+  async getBucketInfo(): Promise<{ bucket: string; publicUrl: string; configured: boolean }> {
+    const endpoint = this.config.get<string>('R2_ENDPOINT', this.config.get<string>('S3_ENDPOINT', ''));
+    return {
+      bucket: this.bucket,
+      publicUrl: this.publicUrl || `https://${this.bucket}.r2.dev`,
+      configured: !!(endpoint && this.bucket),
+    };
   }
 }

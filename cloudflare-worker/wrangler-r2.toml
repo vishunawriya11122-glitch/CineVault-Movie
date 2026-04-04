@@ -1,0 +1,8 @@
+name = "r2-media"
+main = "r2-worker.js"
+compatibility_date = "2024-01-01"
+
+# R2 bucket binding — "MEDIA" is the variable name used in worker code
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "velora-media"
