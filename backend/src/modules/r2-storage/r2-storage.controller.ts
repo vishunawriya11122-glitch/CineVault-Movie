@@ -26,6 +26,13 @@ export class R2StorageController {
     return this.r2.getBucketInfo();
   }
 
+  // Upload config for multipart uploads (worker URL + API key)
+  // GET /r2/upload-config
+  @Get('upload-config')
+  getUploadConfig() {
+    return this.r2.getUploadConfig();
+  }
+
   // Browse R2 bucket folders/files
   // GET /r2/browse?path=series/breaking-bad/
   @Get('browse')

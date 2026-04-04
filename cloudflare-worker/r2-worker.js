@@ -83,6 +83,55 @@ export default {
         return handleDelete(key, env);
       }
 
+      // ── Multipart Upload: Create ──
+      // POST /upload/multipart/create?key=series/show/s01/e01.mp4
+      if (url.pathname === '/upload/multipart/create' && request.method === 'POST') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = url.searchParams.get('key');
+        if (!key) return jsonResponse({ error: 'Missing ?key= parameter' }, 400);
+        const upload = await env.MEDIA.createMultipartUpload(key);
+        return jsonResponse({ uploadId: upload.uploadId, key });
+      }
+
+      // ── Multipart Upload: Upload Part ──
+      // PUT /upload/multipart/part?key=...&uploadId=...&partNumber=1
+      if (url.pathname === '/upload/multipart/part' && request.method === 'PUT') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = url.searchParams.get('key');
+        const uploadId = url.searchParams.get('uploadId');
+        const partNumber = parseInt(url.searchParams.get('partNumber') || '0');
+        if (!key || !uploadId || !partNumber) return jsonResponse({ error: 'Missing key, uploadId, or partNumber' }, 400);
+        const upload = env.MEDIA.resumeMultipartUpload(key, uploadId);
+        const part = await upload.uploadPart(partNumber, request.body);
+        return jsonResponse({ partNumber: part.partNumber, etag: part.etag });
+      }
+
+      // ── Multipart Upload: Complete ──
+      // POST /upload/multipart/complete?key=...&uploadId=...
+      if (url.pathname === '/upload/multipart/complete' && request.method === 'POST') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = url.searchParams.get('key');
+        const uploadId = url.searchParams.get('uploadId');
+        if (!key || !uploadId) return jsonResponse({ error: 'Missing key or uploadId' }, 400);
+        const { parts } = await request.json();
+        const upload = env.MEDIA.resumeMultipartUpload(key, uploadId);
+        await upload.complete(parts);
+        const publicUrl = `${url.origin}/${key}`;
+        return jsonResponse({ success: true, key, publicUrl });
+      }
+
+      // ── Multipart Upload: Abort ──
+      // DELETE /upload/multipart/abort?key=...&uploadId=...
+      if (url.pathname === '/upload/multipart/abort' && request.method === 'DELETE') {
+        if (!checkApiKey(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const key = url.searchParams.get('key');
+        const uploadId = url.searchParams.get('uploadId');
+        if (!key || !uploadId) return jsonResponse({ error: 'Missing key or uploadId' }, 400);
+        const upload = env.MEDIA.resumeMultipartUpload(key, uploadId);
+        await upload.abort();
+        return jsonResponse({ success: true });
+      }
+
       // ── Presigned info (GET /presign?key=series/show/s01/e01.mp4) ──
       // Returns the direct upload URL for the worker
       if (url.pathname === '/presign') {

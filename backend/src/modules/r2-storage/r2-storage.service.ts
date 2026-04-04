@@ -320,7 +320,8 @@ export class R2StorageService {
 
     if (this.useWorker) {
       // Return the worker upload URL — admin will PUT directly to the worker
-      const uploadUrl = `${this.workerUrl}/upload/${encodeURIComponent(key)}?apiKey=${encodeURIComponent(this.workerApiKey)}`;
+      const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+      const uploadUrl = `${this.workerUrl}/upload/${encodedKey}?apiKey=${encodeURIComponent(this.workerApiKey)}`;
       const publicUrl = this.getPublicUrl(key);
       return { uploadUrl, key, publicUrl };
     }
@@ -338,12 +339,23 @@ export class R2StorageService {
     return { uploadUrl, key, publicUrl };
   }
 
+  // ── Get worker config for direct multipart uploads from admin ──
+  getUploadConfig(): { workerUrl: string; apiKey: string; publicUrl: string; useWorker: boolean } {
+    return {
+      workerUrl: this.workerUrl,
+      apiKey: this.workerApiKey,
+      publicUrl: this.publicUrl,
+      useWorker: this.useWorker,
+    };
+  }
+
   // ── Create a "folder" (zero-byte marker object) ──
   async createFolder(path: string): Promise<{ path: string }> {
     const folderKey = path.endsWith('/') ? path : path + '/';
 
     if (this.useWorker) {
-      await fetch(`${this.workerUrl}/folder/${encodeURIComponent(folderKey)}?apiKey=${encodeURIComponent(this.workerApiKey)}`, {
+      const encodedKey = folderKey.split('/').map(encodeURIComponent).join('/');
+      await fetch(`${this.workerUrl}/folder/${encodedKey}?apiKey=${encodeURIComponent(this.workerApiKey)}`, {
         method: 'PUT',
       });
       this.logger.log(`[R2 Worker] Folder created: ${folderKey}`);
@@ -364,7 +376,8 @@ export class R2StorageService {
   // ── Delete a file from R2 ──
   async deleteFile(key: string): Promise<{ deleted: string }> {
     if (this.useWorker) {
-      await fetch(`${this.workerUrl}/delete/${encodeURIComponent(key)}?apiKey=${encodeURIComponent(this.workerApiKey)}`, {
+      const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+      await fetch(`${this.workerUrl}/delete/${encodedKey}?apiKey=${encodeURIComponent(this.workerApiKey)}`, {
         method: 'DELETE',
       });
       this.logger.log(`[R2 Worker] File deleted: ${key}`);

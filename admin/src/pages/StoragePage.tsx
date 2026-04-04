@@ -388,52 +388,69 @@ function R2FileManager() {
     return `${(bytes / 1024).toFixed(0)} KB`;
   };
 
-  // Upload files via presigned URL
+  // Upload files via presigned URL (small) or multipart (large)
+  const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB chunks
+
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
     const fileArr = Array.from(files);
     const newUploads = fileArr.map((f) => ({ name: f.name, progress: 0, status: 'uploading' as const }));
     setUploadingFiles((prev) => [...prev, ...newUploads]);
 
+    // Get worker config for multipart uploads
+    let uploadConfig: { workerUrl: string; apiKey: string } | null = null;
+    try {
+      const { data } = await api.get('/r2/upload-config');
+      if (data.useWorker) uploadConfig = data;
+    } catch { /* fallback to presigned */ }
+
     for (let i = 0; i < fileArr.length; i++) {
       const file = fileArr[i];
       try {
-        // 1. Get presigned URL from backend
-        const { data } = await api.post('/r2/presigned-url', {
-          folder: currentPath.replace(/\/$/, ''),
-          filename: file.name,
-          contentType: file.type || 'application/octet-stream',
-        });
+        const folder = currentPath.replace(/\/$/, '');
+        const key = folder ? `${folder}/${file.name}` : file.name;
 
-        // 2. Upload directly to R2 using presigned URL
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('PUT', data.uploadUrl, true);
-          xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        if (file.size > CHUNK_SIZE && uploadConfig) {
+          // ── Multipart upload for large files ──
+          await multipartUpload(file, key, uploadConfig, (pct) => {
+            setUploadingFiles((prev) =>
+              prev.map((u) => u.name === file.name ? { ...u, progress: pct } : u),
+            );
+          });
+        } else {
+          // ── Single PUT for small files ──
+          const { data } = await api.post('/r2/presigned-url', {
+            folder,
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+          });
 
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-              const pct = Math.round((e.loaded / e.total) * 100);
-              setUploadingFiles((prev) =>
-                prev.map((u) => u.name === file.name ? { ...u, progress: pct } : u),
-              );
-            }
-          };
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', data.uploadUrl, true);
+            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
 
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              setUploadingFiles((prev) =>
-                prev.map((u) => u.name === file.name ? { ...u, progress: 100, status: 'done' } : u),
-              );
-              resolve();
-            } else {
-              reject(new Error(`Upload failed: ${xhr.status}`));
-            }
-          };
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 100);
+                setUploadingFiles((prev) =>
+                  prev.map((u) => u.name === file.name ? { ...u, progress: pct } : u),
+                );
+              }
+            };
 
-          xhr.onerror = () => reject(new Error('Upload failed'));
-          xhr.send(file);
-        });
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) resolve();
+              else reject(new Error(`Upload failed: ${xhr.status}`));
+            };
 
+            xhr.onerror = () => reject(new Error('Upload failed'));
+            xhr.send(file);
+          });
+        }
+
+        setUploadingFiles((prev) =>
+          prev.map((u) => u.name === file.name ? { ...u, progress: 100, status: 'done' } : u),
+        );
         toast.success(`Uploaded: ${file.name}`);
       } catch (err: any) {
         setUploadingFiles((prev) =>
@@ -451,6 +468,65 @@ function R2FileManager() {
       setUploadingFiles((prev) => prev.filter((u) => u.status === 'uploading'));
     }, 3000);
   }, [currentPath, queryClient]);
+
+  // Multipart upload: split file into chunks, upload each via worker
+  async function multipartUpload(
+    file: File,
+    key: string,
+    config: { workerUrl: string; apiKey: string },
+    onProgress: (pct: number) => void,
+  ) {
+    const { workerUrl, apiKey } = config;
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    // 1. Create multipart upload
+    const createResp = await fetch(
+      `${workerUrl}/upload/multipart/create?key=${encodeURIComponent(key)}&apiKey=${encodeURIComponent(apiKey)}`,
+      { method: 'POST' },
+    );
+    if (!createResp.ok) throw new Error('Failed to start multipart upload');
+    const { uploadId } = await createResp.json();
+
+    // 2. Upload each chunk
+    const parts: { partNumber: number; etag: string }[] = [];
+
+    for (let partNum = 1; partNum <= totalChunks; partNum++) {
+      const start = (partNum - 1) * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      const partResp = await fetch(
+        `${workerUrl}/upload/multipart/part?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNum}&apiKey=${encodeURIComponent(apiKey)}`,
+        { method: 'PUT', body: chunk },
+      );
+
+      if (!partResp.ok) {
+        // Abort on failure
+        await fetch(
+          `${workerUrl}/upload/multipart/abort?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}&apiKey=${encodeURIComponent(apiKey)}`,
+          { method: 'DELETE' },
+        ).catch(() => {});
+        throw new Error(`Failed to upload chunk ${partNum}/${totalChunks}`);
+      }
+
+      const partData = await partResp.json();
+      parts.push({ partNumber: partData.partNumber, etag: partData.etag });
+
+      onProgress(Math.round((partNum / totalChunks) * 100));
+    }
+
+    // 3. Complete multipart upload
+    const completeResp = await fetch(
+      `${workerUrl}/upload/multipart/complete?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}&apiKey=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parts }),
+      },
+    );
+
+    if (!completeResp.ok) throw new Error('Failed to complete multipart upload');
+  }
 
   // Drag & drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
